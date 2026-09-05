@@ -307,9 +307,6 @@ export default function CustomersPage() {
   const [courseFilter, setCourseFilter] =
     useState("All");
 
-  const [batchFilter, setBatchFilter] =
-    useState("All");
-
   const [sortBy, setSortBy] =
     useState("latest");
 
@@ -405,7 +402,55 @@ export default function CustomersPage() {
   }
 
   useEffect(() => {
-    loadCustomers();
+    let mounted = true;
+
+    const refreshCustomers = async () => {
+      if (!mounted) return;
+
+      await loadCustomers();
+    };
+
+    // Initial load
+    refreshCustomers();
+
+    // Listen for customer table changes
+    const customersChannel = supabase
+      .channel("customers-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "customers",
+        },
+        () => {
+          refreshCustomers();
+        },
+      )
+      .subscribe();
+
+    // Listen for payment table changes
+    const paymentsChannel = supabase
+      .channel("payments-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "payments",
+        },
+        () => {
+          refreshCustomers();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      mounted = false;
+
+      supabase.removeChannel(customersChannel);
+      supabase.removeChannel(paymentsChannel);
+    };
   }, []);
 
   /*
@@ -480,26 +525,6 @@ export default function CustomersPage() {
   }, [customers]);
 
   /*
-   * BATCHES
-   */
-  const batches = useMemo(() => {
-    const values = new Set<string>();
-
-    customers.forEach((customer) => {
-      if (customer.batch?.trim()) {
-        values.add(customer.batch.trim());
-      }
-    });
-
-    return Array.from(values).sort((a, b) =>
-      a.localeCompare(b, undefined, {
-        numeric: true,
-        sensitivity: "base",
-      }),
-    );
-  }, [customers]);
-
-  /*
    * FILTER
    */
 
@@ -537,11 +562,6 @@ export default function CustomersPage() {
               courseFilter === "All" ||
               customer.course ===
                 courseFilter;
-
-            const matchesBatch =
-              batchFilter === "All" ||
-              customer.batch ===
-                batchFilter;
 
             const matchesStatus =
               statusFilter === "All" ||
@@ -586,7 +606,6 @@ export default function CustomersPage() {
             return (
               matchesSearch &&
               matchesCourse &&
-              matchesBatch &&
               matchesStatus
             );
           },
@@ -660,27 +679,6 @@ export default function CustomersPage() {
             );
           }
 
-          if (
-            sortBy === "highestPaid" ||
-            sortBy === "lowestPaid"
-          ) {
-            const aTotal = (a.payments || []).reduce(
-              (total, payment) =>
-                total + Number(payment.amount || 0),
-              0,
-            );
-
-            const bTotal = (b.payments || []).reduce(
-              (total, payment) =>
-                total + Number(payment.amount || 0),
-              0,
-            );
-
-            return sortBy === "highestPaid"
-              ? bTotal - aTotal
-              : aTotal - bTotal;
-          }
-
           return 0;
         },
       );
@@ -689,7 +687,6 @@ export default function CustomersPage() {
       search,
       statusFilter,
       courseFilter,
-      batchFilter,
       sortBy,
     ]);
 
@@ -1388,42 +1385,6 @@ export default function CustomersPage() {
             <div className="filter-field">
 
               <label>
-                Batch
-              </label>
-
-              <select
-                value={batchFilter}
-                onChange={(event) => {
-                  setBatchFilter(
-                    event.target.value,
-                  );
-                  setCurrentPage(1);
-                }}
-              >
-
-                <option value="All">
-                  All batches
-                </option>
-
-                {batches.map(
-                  (batch) => (
-                    <option
-                      key={batch}
-                      value={batch}
-                    >
-                      {batch}
-                    </option>
-                  ),
-                )}
-
-              </select>
-
-            </div>
-
-
-            <div className="filter-field">
-
-              <label>
                 Sort customers
               </label>
 
@@ -1453,14 +1414,6 @@ export default function CustomersPage() {
                   Z → A
                 </option>
 
-                <option value="highestPaid">
-                  Highest paid → Lowest paid
-                </option>
-
-                <option value="lowestPaid">
-                  Lowest paid → Highest paid
-                </option>
-
               </select>
 
             </div>
@@ -1471,7 +1424,6 @@ export default function CustomersPage() {
               onClick={() => {
                 setStatusFilter("All");
                 setCourseFilter("All");
-                setBatchFilter("All");
                 setSortBy("latest");
                 setCurrentPage(1);
               }}

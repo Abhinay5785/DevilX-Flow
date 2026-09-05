@@ -8,7 +8,6 @@ import {
   ArrowUpRight,
   BarChart3,
   Bell,
-  ChevronDown,
   CircleDollarSign,
   LayoutDashboard,
   MessageCircle,
@@ -29,6 +28,17 @@ type DashboardStats = {
   paymentsReceived: number;
 };
 
+type RecentPayment = {
+  id: string;
+  paymentId?: string | null;
+  name: string;
+  amount: number;
+  status: string;
+  course?: string | null;
+  batch?: string | null;
+  paymentTime: string;
+};
+
 const EMPTY_STATS: DashboardStats = {
   totalCustomers: 0,
   totalRevenue: 0,
@@ -38,32 +48,6 @@ const EMPTY_STATS: DashboardStats = {
 
 
 
-const activities = [
-  {
-    name: "Rahul Sharma",
-    action: "completed a WhatsApp flow",
-    time: "2 min ago",
-    type: "flow",
-  },
-  {
-    name: "Priya Reddy",
-    action: "joined as a new customer",
-    time: "18 min ago",
-    type: "customer",
-  },
-  {
-    name: "Arjun Kumar",
-    action: "opened your WhatsApp message",
-    time: "32 min ago",
-    type: "message",
-  },
-  {
-    name: "Sneha Rao",
-    action: "completed a WhatsApp flow",
-    time: "1 hr ago",
-    type: "flow",
-  },
-];
 
 export default function DashboardPage() {
   const supabase = createClient();
@@ -74,146 +58,229 @@ export default function DashboardPage() {
   const [statsLoading, setStatsLoading] =
     useState(true);
 
+  const [recentPayments, setRecentPayments] =
+    useState<RecentPayment[]>([]);
+
   useEffect(() => {
     let cancelled = false;
 
-    async function loadDashboardStats() {
+    async function loadDashboard() {
       setStatsLoading(true);
 
-      const { data, error } = await supabase
-        .from("customers")
-        .select(
-          `
-            id,
-            course,
-            batch,
-            payments (
+      const [
+        customersResult,
+        paymentsResult,
+      ] = await Promise.all([
+        supabase
+          .from("customers")
+          .select(
+            `
+              id,
+              course,
+              batch,
+              payments (
+                amount,
+                status,
+                payment_time
+              )
+            `,
+          ),
+        supabase
+          .from("payments")
+          .select(
+            `
+              id,
+              payment_id,
               amount,
-              status
-            )
-          `,
-        );
+              status,
+              payment_time,
+              customer_id,
+              customers (
+                name,
+                course,
+                batch
+              )
+            `,
+          )
+          .order("payment_time", { ascending: false })
+          .limit(8),
+      ]);
 
       if (cancelled) return;
 
-      if (error) {
+      if (customersResult.error) {
         console.error(
           "Failed to load dashboard customer data:",
-          error,
+          customersResult.error,
         );
         setDashboardStats(EMPTY_STATS);
-        setStatsLoading(false);
-        return;
-      }
+      } else {
+        const customers = customersResult.data || [];
 
-      const customers = data || [];
+        const totalRevenue = customers.reduce(
+          (customerTotal, customer) => {
+            const customerPayments =
+              Array.isArray(customer.payments)
+                ? customer.payments
+                : [];
 
-      const totalRevenue = customers.reduce(
-        (customerTotal, customer) => {
-          const customerPayments =
-            Array.isArray(customer.payments)
-              ? customer.payments
-              : [];
+            return (
+              customerTotal +
+              customerPayments.reduce(
+                (paymentTotal, payment) => {
+                  const status = String(
+                    payment.status || "",
+                  ).toLowerCase();
 
-          return (
-            customerTotal +
-            customerPayments.reduce(
-              (paymentTotal, payment) => {
-                const status =
-                  String(payment.status || "").toLowerCase();
+                  if (
+                    status === "captured" ||
+                    status === "paid" ||
+                    status === "success" ||
+                    status === "successful"
+                  ) {
+                    return (
+                      paymentTotal +
+                      Number(payment.amount || 0)
+                    );
+                  }
 
-                if (
+                  return paymentTotal;
+                },
+                0,
+              )
+            );
+          },
+          0,
+        );
+
+        const flowKeys = new Set<string>();
+
+        customers.forEach((customer) => {
+          const course = String(
+            customer.course || "",
+          ).trim();
+
+          const batch = String(
+            customer.batch || "",
+          ).trim();
+
+          if (course || batch) {
+            flowKeys.add(
+              `${course.toLowerCase()}::${batch.toLowerCase()}`,
+            );
+          }
+        });
+
+        const paymentsReceived = customers.reduce(
+          (total, customer) => {
+            const customerPayments =
+              Array.isArray(customer.payments)
+                ? customer.payments
+                : [];
+
+            return (
+              total +
+              customerPayments.filter((payment) => {
+                const status = String(
+                  payment.status || "",
+                ).toLowerCase();
+
+                return (
                   status === "captured" ||
                   status === "paid" ||
                   status === "success" ||
                   status === "successful"
-                ) {
-                  return (
-                    paymentTotal +
-                    Number(payment.amount || 0)
-                  );
-                }
+                );
+              }).length
+            );
+          },
+          0,
+        );
 
-                return paymentTotal;
-              },
-              0,
-            )
-          );
-        },
-        0,
-      );
+        setDashboardStats({
+          totalCustomers: customers.length,
+          totalRevenue,
+          activeFlows: flowKeys.size,
+          paymentsReceived,
+        });
+      }
 
-      /*
-       * A flow/program is represented by a unique
-       * Course + Batch combination in the customer data.
-       * This keeps the dashboard connected to the same
-       * customer dataset used by the Customers page.
-       */
-      const flowKeys = new Set<string>();
+      if (paymentsResult.error) {
+        console.error(
+          "Failed to load recent payments:",
+          paymentsResult.error,
+        );
+        setRecentPayments([]);
+      } else {
+        const paymentRows = paymentsResult.data || [];
 
-      customers.forEach((customer) => {
-        const course = String(
-          customer.course || "",
-        ).trim();
+        setRecentPayments(
+          paymentRows.map((payment) => {
+            const customer = Array.isArray(payment.customers)
+              ? payment.customers[0]
+              : payment.customers;
 
-        const batch = String(
-          customer.batch || "",
-        ).trim();
-
-        if (course || batch) {
-          flowKeys.add(
-            `${course.toLowerCase()}::${batch.toLowerCase()}`,
-          );
-        }
-      });
-
-      /*
-       * "Payments Received" is the number of successful
-       * payment records, derived from the customer payments.
-       */
-      const paymentsReceived = customers.reduce(
-        (total, customer) => {
-          const customerPayments =
-            Array.isArray(customer.payments)
-              ? customer.payments
-              : [];
-
-          return (
-            total +
-            customerPayments.filter((payment) => {
-              const status =
-                String(
-                  payment.status || "",
-                ).toLowerCase();
-
-              return (
-                status === "captured" ||
-                status === "paid" ||
-                status === "success" ||
-                status === "successful"
-              );
-            }).length
-          );
-        },
-        0,
-      );
-
-      setDashboardStats({
-        totalCustomers: customers.length,
-        totalRevenue,
-        activeFlows: flowKeys.size,
-        paymentsReceived,
-      });
+            return {
+              id: String(payment.id),
+              paymentId: payment.payment_id,
+              name: String(
+                customer?.name || "Unknown customer",
+              ),
+              amount: Number(payment.amount || 0),
+              status: String(payment.status || "pending"),
+              course: customer?.course || null,
+              batch: customer?.batch || null,
+              paymentTime: String(
+                payment.payment_time ||
+                  new Date().toISOString(),
+              ),
+            };
+          }),
+        );
+      }
 
       setStatsLoading(false);
     }
 
-    loadDashboardStats();
+    loadDashboard();
+
+    const refreshDashboard = () => {
+      loadDashboard();
+    };
+
+    const customersChannel = supabase
+      .channel("dashboard-customers-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "customers",
+        },
+        refreshDashboard,
+      )
+      .subscribe();
+
+    const paymentsChannel = supabase
+      .channel("dashboard-payments-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "payments",
+        },
+        refreshDashboard,
+      )
+      .subscribe();
 
     return () => {
       cancelled = true;
+      supabase.removeChannel(customersChannel);
+      supabase.removeChannel(paymentsChannel);
     };
   }, []);
+
 
   const stats = [
     {
@@ -277,7 +344,7 @@ export default function DashboardPage() {
                   </span>
                 </div>
 
-                <p className="mt-0.5 text-[9px] uppercase tracking-[2px] text-white/30">
+                <p className="mt-0.5 text-xs uppercase tracking-[2px] text-white/30">
                   Automation Platform
                 </p>
               </div>
@@ -288,7 +355,7 @@ export default function DashboardPage() {
           {/* NAVIGATION */}
           <div className="flex-1 px-4">
 
-            <p className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[2px] text-white/25">
+            <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-[2px] text-white/25">
               Workspace
             </p>
 
@@ -331,7 +398,7 @@ export default function DashboardPage() {
 
             </nav>
 
-            <p className="mb-3 mt-9 px-3 text-[10px] font-semibold uppercase tracking-[2px] text-white/25">
+            <p className="mb-3 mt-9 px-3 text-xs font-semibold uppercase tracking-[2px] text-white/25">
               System
             </p>
 
@@ -362,13 +429,13 @@ export default function DashboardPage() {
                   Build your next flow
                 </p>
 
-                <p className="mt-1 text-[10px] leading-4 text-white/35">
+                <p className="mt-1 text-xs leading-4 text-white/35">
                   Automate conversations and grow faster.
                 </p>
 
                 <Link
                   href="/dashboard/whatsapp"
-                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-white py-2 text-[11px] font-semibold text-black transition hover:bg-white/90"
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-white py-2 text-xs font-semibold text-black transition hover:bg-white/90"
                 >
                   <Plus size={13} />
                   Create Flow
@@ -378,33 +445,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* USER */}
-          <div className="border-t border-white/[0.06] px-4 py-4">
-
-            <div className="flex items-center gap-3 rounded-xl p-2">
-
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#ff1744] to-[#7a001d] text-xs font-bold">
-                A
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-semibold">
-                  Admin
-                </p>
-
-                <p className="truncate text-[10px] text-white/30">
-                  DevilX Workspace
-                </p>
-              </div>
-
-              <ChevronDown
-                size={14}
-                className="text-white/30"
-              />
-
-            </div>
-
-          </div>
 
         </aside>
 
@@ -415,7 +455,7 @@ export default function DashboardPage() {
           <header className="flex h-[72px] items-center justify-between border-b border-white/[0.06] px-5 sm:px-7 lg:px-10">
 
             <div>
-              <p className="text-[10px] uppercase tracking-[2px] text-white/25">
+              <p className="text-xs uppercase tracking-[2px] text-white/25">
                 Overview
               </p>
 
@@ -436,22 +476,12 @@ export default function DashboardPage() {
 
               <div className="hidden h-6 w-px bg-white/[0.08] sm:block" />
 
-              <button className="flex items-center gap-2">
-
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#ff1744] to-[#7a001d] text-[10px] font-bold">
-                  A
-                </div>
-
-                <span className="hidden text-xs font-medium text-white/70 md:block">
-                  Admin
+              <div className="hidden items-center gap-2 sm:flex">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
+                <span className="text-xs font-medium text-white/45">
+                  Live
                 </span>
-
-                <ChevronDown
-                  size={13}
-                  className="hidden text-white/25 md:block"
-                />
-
-              </button>
+              </div>
 
             </div>
 
@@ -486,14 +516,14 @@ export default function DashboardPage() {
                       <Sparkles size={13} />
                     </div>
 
-                    <span className="text-[10px] font-semibold uppercase tracking-[2px] text-[#ff1744]">
+                    <span className="text-xs font-semibold uppercase tracking-[2px] text-[#ff1744]">
                       DevilX Flow
                     </span>
 
                   </div>
 
-                  <h2 className="text-3xl font-bold tracking-[-1px] sm:text-4xl lg:text-[42px] lg:leading-[1.1]">
-                    Welcome back, Admin
+                  <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl lg:text-[40px] lg:leading-[1.1]">
+                    Welcome back
                     <span className="text-[#ff1744]">
                       .
                     </span>
@@ -554,14 +584,14 @@ export default function DashboardPage() {
                           <Icon size={16} />
                         </div>
 
-                        <div className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400">
+                        <div className="flex items-center gap-1 text-xs font-semibold text-emerald-400">
                           <ArrowUpRight size={12} />
                           {stat.change}
                         </div>
 
                       </div>
 
-                      <p className="text-[11px] text-white/30">
+                      <p className="text-xs text-white/30">
                         {stat.title}
                       </p>
 
@@ -580,80 +610,140 @@ export default function DashboardPage() {
             {/* LOWER CONTENT */}
             <section className="grid gap-5 xl:grid-cols-[1.45fr_0.85fr]">
 
-              {/* ACTIVITY */}
+              {/* RECENT PAYMENTS */}
               <div className="rounded-2xl border border-white/[0.07] bg-[#0b0b0b] p-5 sm:p-6">
 
                 <div className="mb-6 flex items-center justify-between">
 
                   <div>
-                    <h3 className="text-sm font-semibold">
-                      Recent Activity
+                    <h3 className="text-base font-semibold">
+                      Recent Payments
                     </h3>
 
-                    <p className="mt-1 text-[10px] text-white/25">
-                      What&apos;s happening across your flows
+                    <p className="mt-1 text-xs text-white/30">
+                      Latest payment activity from Razorpay
                     </p>
                   </div>
 
-                  <button className="flex h-8 w-8 items-center justify-center rounded-lg text-white/25 transition hover:bg-white/[0.05] hover:text-white">
-                    <BarChart3 size={15} />
-                  </button>
+                  <Link
+                    href="/dashboard/customers"
+                    className="flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs font-medium text-white/45 transition hover:bg-white/[0.05] hover:text-white"
+                  >
+                    View all
+                    <ArrowUpRight size={13} />
+                  </Link>
 
                 </div>
 
                 <div className="space-y-1">
 
-                  {activities.map((activity) => (
-
-                    <div
-                      key={`${activity.name}-${activity.time}`}
-                      className="group flex items-center gap-3 rounded-xl p-3 transition hover:bg-white/[0.025]"
-                    >
-
-                      <div
-                        className={
-                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[10px] font-bold " +
-                          (activity.type === "flow"
-                            ? "bg-[#ff1744]/10 text-[#ff1744]"
-                            : "bg-white/[0.06] text-white/60")
-                        }
-                      >
-
-                        {activity.type === "flow" ? (
-                          <Workflow size={14} />
-                        ) : activity.type === "customer" ? (
-                          <Users size={14} />
-                        ) : (
-                          <MessageCircle size={14} />
-                        )}
-
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-
-                        <p className="truncate text-xs">
-                          <span className="font-semibold text-white/80">
-                            {activity.name}
-                          </span>{" "}
-                          <span className="text-white/35">
-                            {activity.action}
-                          </span>
-                        </p>
-
-                        <p className="mt-1 text-[10px] text-white/20">
-                          {activity.time}
-                        </p>
-
-                      </div>
-
-                      <ArrowUpRight
-                        size={13}
-                        className="text-white/10 transition group-hover:text-white/40"
-                      />
-
+                  {statsLoading && recentPayments.length === 0 ? (
+                    <div className="py-10 text-center text-sm text-white/30">
+                      Loading latest payments...
                     </div>
+                  ) : recentPayments.length === 0 ? (
+                    <div className="py-10 text-center text-sm text-white/30">
+                      No payments received yet.
+                    </div>
+                  ) : (
+                    recentPayments.map((payment) => {
+                      const status = payment.status.toLowerCase();
+                      const captured =
+                        status === "captured" ||
+                        status === "paid" ||
+                        status === "success" ||
+                        status === "successful";
 
-                  ))}
+                      const failed =
+                        status === "failed";
+
+                      return (
+                        <div
+                          key={payment.id}
+                          className="group flex items-center gap-3 rounded-xl p-3 transition hover:bg-white/[0.025]"
+                        >
+                          <div
+                            className={
+                              "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold " +
+                              (captured
+                                ? "bg-emerald-400/10 text-emerald-400"
+                                : failed
+                                  ? "bg-red-400/10 text-red-400"
+                                  : "bg-amber-400/10 text-amber-400")
+                            }
+                          >
+                            ₹
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="truncate text-sm font-medium text-white/85">
+                                {payment.name}
+                              </p>
+
+                              <span
+                                className={
+                                  "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium " +
+                                  (captured
+                                    ? "bg-emerald-400/10 text-emerald-400"
+                                    : failed
+                                      ? "bg-red-400/10 text-red-400"
+                                      : "bg-amber-400/10 text-amber-400")
+                                }
+                              >
+                                {captured
+                                  ? "Captured"
+                                  : failed
+                                    ? "Failed"
+                                    : "Pending"}
+                              </span>
+                            </div>
+
+                            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-white/30">
+                              <span>
+                                {payment.course || "Payment"}
+                              </span>
+
+                              {payment.batch && (
+                                <>
+                                  <span>•</span>
+                                  <span>
+                                    Batch {payment.batch}
+                                  </span>
+                                </>
+                              )}
+
+                              <span>•</span>
+
+                              <span>
+                                {formatRelativeTime(
+                                  payment.paymentTime,
+                                )}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <p className="text-sm font-semibold text-white/90">
+                              ₹
+                              {payment.amount.toLocaleString(
+                                "en-IN",
+                                {
+                                  maximumFractionDigits: 0,
+                                },
+                              )}
+                            </p>
+
+                            {payment.paymentId && (
+                              <p className="mt-1 max-w-[105px] truncate text-xs text-white/20">
+                                {payment.paymentId}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
 
                 </div>
 
@@ -668,7 +758,7 @@ export default function DashboardPage() {
                     Quick Actions
                   </h3>
 
-                  <p className="mt-1 text-[10px] text-white/25">
+                  <p className="mt-1 text-xs text-white/25">
                     Jump into your workspace
                   </p>
 
@@ -710,11 +800,11 @@ export default function DashboardPage() {
             {/* FOOTER */}
             <div className="mt-8 flex items-center justify-between border-t border-white/[0.05] pt-5">
 
-              <p className="text-[9px] uppercase tracking-[2px] text-white/15">
+              <p className="text-xs uppercase tracking-[2px] text-white/15">
                 DevilX Flow
               </p>
 
-              <p className="text-[9px] text-white/15">
+              <p className="text-xs text-white/15">
                 Automation made simple.
               </p>
 
@@ -783,6 +873,48 @@ export default function DashboardPage() {
   );
 }
 
+
+function formatRelativeTime(value: string) {
+  const timestamp = new Date(value).getTime();
+
+  if (!Number.isFinite(timestamp)) {
+    return "Just now";
+  }
+
+  const diffSeconds = Math.max(
+    0,
+    Math.floor((Date.now() - timestamp) / 1000),
+  );
+
+  if (diffSeconds < 60) {
+    return "Just now";
+  }
+
+  const minutes = Math.floor(diffSeconds / 60);
+
+  if (minutes < 60) {
+    return `${minutes} min ago`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+
+  if (hours < 24) {
+    return `${hours} hr${hours === 1 ? "" : "s"} ago`;
+  }
+
+  const days = Math.floor(hours / 24);
+
+  if (days < 7) {
+    return `${days} day${days === 1 ? "" : "s"} ago`;
+  }
+
+  return new Date(value).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 function SidebarItem({
   icon,
   label,
@@ -798,7 +930,7 @@ function SidebarItem({
     <Link
       href={href}
       className={
-        "group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-medium transition-all " +
+        "group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all " +
         (active
           ? "bg-[#ff1744] text-white shadow-[0_0_20px_rgba(255,23,68,0.12)]"
           : "text-white/35 hover:bg-white/[0.04] hover:text-white/80")
@@ -842,10 +974,10 @@ function QuickAction({
         {icon}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-semibold text-white/75">
+        <p className="text-sm font-semibold text-white/75">
           {title}
         </p>
-        <p className="mt-0.5 text-[9px] text-white/25">
+        <p className="mt-0.5 text-xs text-white/25">
           {description}
         </p>
       </div>
