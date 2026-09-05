@@ -77,8 +77,8 @@ function unixToIso(value: unknown) {
 }
 
 /*
- * Course and Batch should ideally be supplied through Razorpay Payment Link
- * notes/reference_id. This function supports common note names.
+ * Course, Batch, Age and City should ideally be supplied
+ * through Razorpay Payment Link / Payment notes.
  */
 function getMetadata(
   paymentLink: any,
@@ -96,7 +96,10 @@ function getMetadata(
       if (!source || typeof source !== "object") continue;
 
       for (const key of keys) {
-        if (source[key] !== undefined && source[key] !== null) {
+        if (
+          source[key] !== undefined &&
+          source[key] !== null
+        ) {
           return clean(source[key]);
         }
       }
@@ -112,6 +115,7 @@ function getMetadata(
       "course_name",
       "courseName",
     ),
+
     batch: getNote(
       "batch",
       "Batch",
@@ -119,6 +123,17 @@ function getMetadata(
       "batchName",
       "cohort",
     ),
+
+    age: getNote(
+      "age",
+      "Age",
+    ),
+
+    city: getNote(
+      "city",
+      "City",
+    ),
+
     paymentType: getNote(
       "payment_type",
       "paymentType",
@@ -143,11 +158,13 @@ function getCustomerDetails(
       paymentLink?.notes?.name ||
       linkCustomer?.name,
     ),
+
     phone: normalizePhone(
       paymentContact ||
       payment?.contact ||
       linkCustomer?.contact,
     ),
+
     email: clean(
       paymentEmail ||
       linkCustomer?.email,
@@ -188,6 +205,10 @@ export async function POST(request: NextRequest) {
       secret,
     )
   ) {
+    console.error(
+      "Invalid Razorpay webhook signature.",
+    );
+
     return NextResponse.json(
       {
         error: "Invalid webhook signature.",
@@ -216,9 +237,7 @@ export async function POST(request: NextRequest) {
   const event = clean(body?.event);
 
   /*
-   * Ignore events that this endpoint does not need.
-   * Razorpay can be configured with only the relevant events,
-   * but keeping this guard makes the endpoint safer.
+   * Only process the events required by DevilX.
    */
   const supportedEvents = new Set([
     "payment.captured",
@@ -239,10 +258,8 @@ export async function POST(request: NextRequest) {
 
   /*
    * Idempotency:
-   * Razorpay can retry a webhook. Store the event ID so the same
-   * payment is not inserted twice.
-   *
-   * This requires the migration file supplied with this implementation.
+   * Razorpay can retry a webhook.
+   * Store the event ID so the same event is not processed twice.
    */
   if (eventId) {
     const { data: existingEvent } = await supabase
@@ -269,9 +286,8 @@ export async function POST(request: NextRequest) {
     body?.payload?.payment_link?.entity || null;
 
   /*
-   * For payment_link.paid / partially_paid, the payload can contain
-   * order + payment + payment_link. For payment events, payment is
-   * the primary entity.
+   * For payment_link.paid / partially_paid,
+   * payload can contain order + payment + payment_link.
    */
   const effectivePayment =
     payment ||
@@ -343,8 +359,8 @@ export async function POST(request: NextRequest) {
   );
 
   /*
-   * Find customer using the same priority used by the import flow:
-   * phone -> email -> name.
+   * Find customer:
+   * phone -> email -> name
    */
   let customer: any = null;
 
@@ -389,12 +405,14 @@ export async function POST(request: NextRequest) {
 
   const customFields = {
     ...(customer?.custom_fields || {}),
+
     ...(paymentLink
       ? {
           razorpay_payment_link_id:
             clean(paymentLink.id),
         }
       : {}),
+
     ...(metadata.paymentType
       ? {
           payment_type:
@@ -404,7 +422,7 @@ export async function POST(request: NextRequest) {
   };
 
   /*
-   * Create or update customer.
+   * Create customer if not found.
    */
   if (!customer) {
     const { data: createdCustomer, error } =
@@ -414,15 +432,29 @@ export async function POST(request: NextRequest) {
           name:
             customerDetails.name ||
             "Razorpay Customer",
+
+          age:
+            metadata.age
+              ? Number(metadata.age)
+              : null,
+
+          city:
+            metadata.city || null,
+
           phone:
             customerDetails.phone || null,
+
           email:
             customerDetails.email || null,
+
           course:
             metadata.course || null,
+
           batch:
             metadata.batch || null,
-          custom_fields: customFields,
+
+          custom_fields:
+            customFields,
         })
         .select("id")
         .single();
@@ -443,28 +475,59 @@ export async function POST(request: NextRequest) {
 
     customer = createdCustomer;
   } else {
+    /*
+     * Update existing customer.
+     *
+     * Important:
+     * Age and City are updated only when we have
+     * values from Razorpay.
+     */
     const updatePayload: Record<string, any> = {
       custom_fields: customFields,
     };
 
     if (!customer.name && customerDetails.name) {
-      updatePayload.name = customerDetails.name;
+      updatePayload.name =
+        customerDetails.name;
     }
 
     if (!customer.phone && customerDetails.phone) {
-      updatePayload.phone = customerDetails.phone;
+      updatePayload.phone =
+        customerDetails.phone;
     }
 
     if (!customer.email && customerDetails.email) {
-      updatePayload.email = customerDetails.email;
+      updatePayload.email =
+        customerDetails.email;
+    }
+
+    if (
+      (customer.age === null ||
+        customer.age === undefined ||
+        customer.age === "") &&
+      metadata.age
+    ) {
+      updatePayload.age =
+        Number(metadata.age);
+    }
+
+    if (
+      (!customer.city ||
+        customer.city.trim() === "") &&
+      metadata.city
+    ) {
+      updatePayload.city =
+        metadata.city;
     }
 
     if (!customer.course && metadata.course) {
-      updatePayload.course = metadata.course;
+      updatePayload.course =
+        metadata.course;
     }
 
     if (!customer.batch && metadata.batch) {
-      updatePayload.batch = metadata.batch;
+      updatePayload.batch =
+        metadata.batch;
     }
 
     const { error } = await supabase
@@ -488,9 +551,8 @@ export async function POST(request: NextRequest) {
   }
 
   /*
-   * Upsert the payment using payment_id.
-   * This makes webhook retries safe even if the event ID
-   * was not available.
+   * Upsert payment using payment_id.
+   * This makes webhook retries safe.
    */
   const paymentPayload = {
     customer_id: customer.id,
@@ -527,8 +589,8 @@ export async function POST(request: NextRequest) {
   }
 
   /*
-   * Record the webhook only after the business data
-   * has been successfully saved.
+   * Record the webhook only after
+   * the business data has been successfully saved.
    */
   if (eventId) {
     const { error: eventError } =
