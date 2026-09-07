@@ -3744,4 +3744,640 @@ const baseStyles = `
     }
   }
 
+
+
+  /* ===== FINAL RESPONSIVE OVERRIDES ===== */
+  :global(html),
+  :global(body) {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .courses-page {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .page-shell,
+  .page-header,
+  .batch-section,
+  .course-level-panel,
+  .batch-grid {
+    min-width: 0;
+  }
+
+  .page-header {
+    flex-wrap: wrap;
+  }
+
+  .header-left,
+  .page-title-copy,
+  .title-line {
+    min-width: 0;
+  }
+
+  .page-title-copy {
+    overflow-wrap: anywhere;
+  }
+
+  .title-line h1 {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .create-button {
+    flex: 0 0 auto;
+  }
+
+  .batch-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .batch-card,
+  .batch-card-heading,
+  .batch-name-row {
+    min-width: 0;
+  }
+
+  .batch-name-row h3 {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .batch-description {
+    overflow-wrap: anywhere;
+  }
+
+  .student-table-scroll {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  .student-table {
+    min-width: 980px;
+  }
+
+  .student-table th,
+  .student-table td {
+    white-space: nowrap;
+  }
+
+  .table-student {
+    white-space: normal;
+  }
+
+  .student-table-actions {
+    min-width: 0;
+  }
+
+  .student-search {
+    min-width: 0;
+  }
+
+  .modal-backdrop {
+    padding: 20px;
+    overflow-y: auto;
+  }
+
+  .modal {
+    width: min(620px, 100%);
+    max-width: 100%;
+    max-height: calc(100dvh - 40px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .modal-header,
+  .modal-footer {
+    flex-shrink: 0;
+  }
+
+  .modal .form {
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .modal-header > div {
+    min-width: 0;
+  }
+
+  .modal-header h2,
+  .modal-header p {
+    overflow-wrap: anywhere;
+  }
+
+  /* Tablet */
+  @media (max-width: 900px) {
+    .page-shell {
+      width: min(100% - 28px, 1100px);
+      padding-top: 20px;
+      padding-bottom: 34px;
+    }
+
+    .page-header {
+      align-items: flex-start;
+      gap: 18px;
+      margin-bottom: 20px;
+    }
+
+    .header-left {
+      flex: 1 1 100%;
+    }
+
+    .create-button {
+      width: 100%;
+    }
+
+    .course-overview {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 18px;
+      padding: 20px;
+    }
+
+    .overview-course {
+      min-width: 0;
+    }
+
+    .overview-meta {
+      flex-wrap: wrap;
+      gap: 14px 24px;
+    }
+
+    .edit-course-button {
+      width: 100%;
+    }
+
+    .batch-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .course-level-stats {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .student-table-toolbar {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .student-table-actions {
+      width: 100%;
+      display: flex;
+      gap: 10px;
+    }
+
+    .student-table-actions .student-search {
+      flex: 1;
+    }
+
+    .student-table-scroll {
+      overflow-x: auto;
+    }
+
+    .modal-backdrop {
+      padding: 16px;
+    }
+
+    .modal {
+      max-height: calc(100dvh - 32px);
+    }
+  }
+
+  /* Phone */
+  @media (max-width: 600px) {
+    .page-shell {
+      width: 100%;
+      padding: 12px 10px 28px;
+    }
+
+    .page-header {
+      gap: 12px;
+      padding-bottom: 16px;
+      margin-bottom: 16px;
+    }
+
+    .header-left {
+      width: 100%;
+      gap: 10px;
+    }
+
+    .back-button {
+      width: 38px;
+      height: 38px;
+      flex-basis: 38px;
+    }
+
+    h1 {
+      font-size: 25px;
+      line-height: 1.12;
+    }
+
+    .page-header p {
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .title-line {
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .title-separator {
+      display: none;
+    }
+
+    .create-button {
+      height: 42px;
+      width: 100%;
+    }
+
+    .error-banner {
+      padding: 11px;
+      margin-bottom: 13px;
+    }
+
+    .error-banner span {
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .course-overview {
+      padding: 15px;
+      border-radius: 10px;
+    }
+
+    .overview-course {
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .course-badge {
+      width: 54px;
+      height: 54px;
+      flex-basis: 54px;
+      border-radius: 12px;
+      font-size: 21px;
+    }
+
+    .overview-title-row {
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .overview-title-row h2 {
+      font-size: 18px;
+    }
+
+    .overview-copy > p {
+      margin-bottom: 13px;
+      font-size: 11px;
+    }
+
+    .overview-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .overview-meta > div {
+      min-width: 0;
+    }
+
+    .batch-section .section-heading {
+      padding: 14px;
+    }
+
+    .course-level-panel {
+      border-radius: 10px;
+    }
+
+    .course-level-banner {
+      flex-direction: column;
+      padding: 15px;
+    }
+
+    .course-level-banner h3 {
+      font-size: 16px;
+    }
+
+    .course-level-banner p {
+      font-size: 11px;
+    }
+
+    .course-level-pill {
+      align-self: flex-start;
+    }
+
+    .course-level-stats {
+      grid-template-columns: 1fr;
+    }
+
+    .course-level-stats > div {
+      min-width: 0;
+      padding: 14px 15px;
+      border-right: 0;
+      border-bottom: 1px solid #202023;
+    }
+
+    .course-level-stats > div:last-child {
+      border-bottom: 0;
+    }
+
+    .course-level-stats strong {
+      font-size: 19px;
+    }
+
+    .student-table-card {
+      min-width: 0;
+    }
+
+    .student-table-toolbar {
+      padding: 13px;
+      gap: 11px;
+    }
+
+    .student-table-title {
+      min-width: 0;
+    }
+
+    .student-table-title h2 {
+      font-size: 16px;
+    }
+
+    .student-table-title p {
+      font-size: 10px;
+      overflow-wrap: anywhere;
+    }
+
+    .student-table-actions {
+      width: 100%;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .student-table-actions .student-search {
+      width: 100%;
+      height: 40px;
+    }
+
+    .student-count-pill {
+      align-self: flex-start;
+    }
+
+    .student-table-scroll {
+      border-top: 0;
+      padding-bottom: 2px;
+    }
+
+    .student-table {
+      min-width: 900px;
+    }
+
+    .student-table th {
+      padding: 10px;
+      font-size: 9px;
+    }
+
+    .student-table td {
+      padding: 10px;
+      font-size: 11px;
+    }
+
+    .table-student {
+      min-width: 155px;
+    }
+
+    .student-avatar {
+      width: 32px;
+      height: 32px;
+      flex-basis: 32px;
+    }
+
+    .student-table-footer {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 11px 13px;
+    }
+
+    .student-pagination {
+      width: 100%;
+      justify-content: space-between;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+
+    .pagination-pages {
+      display: flex;
+      min-width: max-content;
+    }
+
+    .course-level-bottom {
+      padding: 13px;
+      align-items: stretch;
+      flex-direction: column;
+      gap: 9px;
+    }
+
+    .course-level-action {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .course-level-bottom > span {
+      text-align: center;
+      line-height: 1.45;
+    }
+
+    .batch-card {
+      padding: 14px;
+      border-radius: 10px;
+    }
+
+    .batch-card-top {
+      margin-bottom: 13px;
+    }
+
+    .batch-name-row {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .batch-name-row h3 {
+      font-size: 17px;
+    }
+
+    .batch-details-grid {
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+    }
+
+    .detail-item {
+      min-width: 0;
+      padding: 10px;
+    }
+
+    .detail-item strong {
+      overflow-wrap: anywhere;
+    }
+
+    .price-strip {
+      grid-template-columns: 1fr;
+      gap: 0;
+    }
+
+    .price-strip > div,
+    .single-price {
+      padding: 10px 0;
+      border-right: 0 !important;
+      border-bottom: 1px solid #202023;
+    }
+
+    .price-strip > div:last-child,
+    .single-price:last-child {
+      border-bottom: 0;
+    }
+
+    .view-batch-button {
+      min-height: 42px;
+    }
+
+    .action-menu {
+      right: 0;
+      max-width: calc(100vw - 40px);
+    }
+
+    .modal-backdrop {
+      padding: 0;
+      align-items: flex-end;
+    }
+
+    .modal {
+      width: 100%;
+      max-width: none;
+      max-height: 96dvh;
+      border-radius: 16px 16px 0 0;
+      border-bottom: 0;
+    }
+
+    .modal-header {
+      padding: 15px;
+      gap: 10px;
+    }
+
+    .modal-header h2 {
+      font-size: 18px;
+    }
+
+    .modal-header p {
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .modal-close {
+      width: 34px;
+      height: 34px;
+      flex-basis: 34px;
+    }
+
+    .modal .form {
+      padding: 14px;
+      gap: 12px;
+    }
+
+    .payment-mode-grid,
+    .date-grid,
+    .amount-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .payment-mode-option {
+      min-height: 62px;
+      padding: 11px;
+    }
+
+    .modal-footer {
+      padding: 11px 14px calc(11px + env(safe-area-inset-bottom));
+      display: grid;
+      grid-template-columns: 1fr 1.35fr;
+      gap: 8px;
+    }
+
+    .cancel-button,
+    .save-button {
+      width: 100%;
+      min-height: 42px;
+    }
+  }
+
+  /* Very small phones */
+  @media (max-width: 380px) {
+    .page-shell {
+      padding-left: 8px;
+      padding-right: 8px;
+    }
+
+    h1 {
+      font-size: 22px;
+    }
+
+    .overview-meta {
+      grid-template-columns: 1fr;
+    }
+
+    .batch-details-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .modal-footer {
+      grid-template-columns: 1fr;
+    }
+
+    .student-pagination {
+      justify-content: flex-start;
+      gap: 6px;
+    }
+  }
+
+  /* Landscape / short-height phones */
+  @media (max-height: 620px) and (max-width: 900px) {
+    .page-shell {
+      padding-top: 8px;
+      padding-bottom: 20px;
+    }
+
+    .page-header {
+      padding-bottom: 11px;
+      margin-bottom: 12px;
+    }
+
+    .modal {
+      max-height: 100dvh;
+      border-radius: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      transition-duration: .01ms !important;
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+
 `;

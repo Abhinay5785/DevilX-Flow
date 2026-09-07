@@ -5137,6 +5137,402 @@ export default function ImportCustomersPage() {
           line-height: 1.5;
         }
 
+
+        /* FINAL RESPONSIVE OVERRIDES */
+        :global(html), :global(body) {
+          width: 100%;
+          max-width: 100%;
+          overflow-x: hidden;
+        }
+
+        .import-page {
+          width: 100%;
+          max-width: 100%;
+          min-width: 0;
+          overflow-x: clip;
+          padding-bottom: max(40px, env(safe-area-inset-bottom));
+        }
+
+        .import-page *,
+        .import-page *::before,
+        .import-page *::after {
+          box-sizing: border-box;
+        }
+
+        .top-bar,
+        .page-shell,
+        .content,
+        .import-grid,
+        .preview-section,
+        .preview-table-wrap,
+        .manual-payment-form,
+        .modal,
+        .modal-content {
+          min-width: 0;
+          max-width: 100%;
+        }
+
+        .import-page button,
+        .import-page input,
+        .import-page textarea,
+        .import-page select {
+          max-width: 100%;
+          touch-action: manipulation;
+        }
+
+        .import-page input,
+        .import-page textarea,
+        .import-page select {
+          font-size: 16px;
+        }
+
+        .preview-table-wrap {
+          width: 100%;
+          overflow-x: auto;
+          overflow-y: visible;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior-x: contain;
+        }
+
+        .preview-table {
+          min-width: 980px;
+        }
+
+        .error-message,
+        .success-message,
+        .fatal-error,
+        .import-page p,
+        .import-page span {
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+
+        .modal-backdrop,
+        [class*="modal-backdrop"] {
+          min-height: 100dvh;
+          overflow-y: auto;
+          -webkit-overflow-scrolling: touch;
+          padding:
+            max(12px, env(safe-area-inset-top))
+            max(12px, env(safe-area-inset-right))
+            max(12px, env(safe-area-inset-bottom))
+            max(12px, env(safe-area-inset-left));
+        }
+
+        [class*="modal"] {
+          max-height: calc(100dvh - 24px);
+          overflow-y: auto;
+        }
+
+        @media (max-width: 1100px) {
+          .import-page {
+            padding-left: 28px;
+            padding-right: 28px;
+          }
+
+          .top-bar {
+            gap: 18px;
+          }
+
+          .import-grid {
+            grid-template-columns: minmax(0, 1fr);
+          }
+        }
+
+        @media (max-width: 760px) {
+          .import-page {
+            padding-left: 18px;
+            padding-right: 18px;
+          }
+
+          .top-bar {
+            flex-wrap: wrap;
+            align-items: flex-start;
+          }
+
+          .top-bar .back-button {
+            flex: 0 0 auto;
+          }
+
+          .top-bar h1,
+          .top-bar .page-title,
+          .top-bar .header-copy {
+            min-width: 0;
+            flex: 1 1 180px;
+          }
+
+          .top-bar > button:last-child,
+          .top-bar .manual-button,
+          .top-bar .upload-button {
+            width: 100%;
+          }
+
+          .import-grid {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 16px;
+          }
+
+          .upload-zone {
+            min-height: 210px;
+            padding: 24px 16px;
+          }
+
+          .stats-grid,
+          .summary-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .preview-header,
+          .preview-toolbar,
+          .section-header {
+            flex-wrap: wrap;
+            align-items: flex-start;
+            gap: 12px;
+          }
+
+          .preview-filter,
+          .filter-buttons {
+            width: 100%;
+          }
+
+          .preview-filter button,
+          .filter-buttons button {
+            flex: 1;
+            min-width: 0;
+          }
+
+          .progress-card {
+            padding: 16px;
+          }
+
+          .progress-stages {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            padding-bottom: 4px;
+          }
+
+          .progress-stage {
+            min-width: 105px;
+          }
+
+          .preview-actions,
+          .action-row,
+          .modal-footer {
+            flex-wrap: wrap;
+          }
+
+          .preview-actions > button,
+          .action-row > button {
+            flex: 1 1 150px;
+          }
+
+          [class*="modal"] {
+            width: min(100%, 680px);
+          }
+
+          .modal-form,
+          .manual-payment-form {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
+        }
+
+        @media (max-width: 520px) {
+          .import-page {
+            padding-left: 12px;
+            padding-right: 12px;
+          }
+
+          .top-bar {
+            gap: 10px;
+          }
+
+          .top-bar .back-button {
+            width: 38px;
+            height: 38px;
+          }
+
+          .top-bar h1 {
+            font-size: clamp(22px, 7vw, 30px);
+            line-height: 1.15;
+          }
+
+          .stats-grid,
+          .summary-grid {
+            grid-template-columns: minmax(0, 1fr);
+          }
+
+          .stat-card,
+          .summary-card {
+            min-height: 86px;
+          }
+
+          .upload-zone {
+            min-height: 185px;
+            padding: 20px 12px;
+          }
+
+          .upload-zone h2,
+          .upload-zone h3 {
+            font-size: 18px;
+          }
+
+          .section-heading h2,
+          .preview-header h2 {
+            font-size: 18px;
+          }
+
+          .preview-toolbar {
+            flex-direction: column;
+            align-items: stretch;
+          }
+
+          .preview-filter,
+          .filter-buttons {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
+
+          .preview-filter button,
+          .filter-buttons button {
+            min-width: 0;
+            padding-left: 7px;
+            padding-right: 7px;
+            font-size: 12px;
+          }
+
+          .preview-table {
+            min-width: 900px;
+          }
+
+          .table-footer,
+          .pagination {
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+          }
+
+          .pagination button {
+            min-width: 38px;
+            min-height: 38px;
+          }
+
+          .modal-backdrop,
+          [class*="modal-backdrop"] {
+            align-items: flex-end !important;
+            padding: 7px 7px max(7px, env(safe-area-inset-bottom));
+          }
+
+          [class*="modal"] {
+            width: 100%;
+            max-width: 100%;
+            max-height: 94dvh;
+            border-radius: 12px 12px 8px 8px;
+          }
+
+          .modal-header {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: inherit;
+          }
+
+          .modal-footer {
+            position: sticky;
+            bottom: 0;
+            z-index: 2;
+            background: inherit;
+          }
+
+          .manual-payment-form {
+            gap: 12px;
+          }
+
+          .manual-payment-form label {
+            min-width: 0;
+          }
+
+          .modal-footer button,
+          .manual-payment-actions button {
+            width: 100%;
+          }
+
+          .failure-popup,
+          .result-card {
+            width: 100%;
+            max-width: 100%;
+          }
+        }
+
+        @media (max-width: 380px) {
+          .import-page {
+            padding-left: 9px;
+            padding-right: 9px;
+          }
+
+          .top-bar h1 {
+            font-size: 24px;
+          }
+
+          .upload-zone {
+            padding: 17px 10px;
+          }
+
+          .preview-table {
+            min-width: 820px;
+          }
+
+          .preview-filter,
+          .filter-buttons {
+            grid-template-columns: 1fr;
+          }
+
+          .preview-filter button,
+          .filter-buttons button {
+            width: 100%;
+          }
+
+          [class*="modal"] {
+            padding-left: 13px;
+            padding-right: 13px;
+          }
+        }
+
+        @media (max-height: 620px) and (max-width: 760px) {
+          .import-page {
+            padding-top: 10px;
+          }
+
+          .upload-zone {
+            min-height: 160px;
+          }
+
+          [class*="modal"] {
+            max-height: 97dvh;
+          }
+        }
+
+        @media (orientation: landscape) and (max-height: 560px) {
+          .modal-backdrop,
+          [class*="modal-backdrop"] {
+            align-items: flex-start !important;
+          }
+
+          [class*="modal"] {
+            margin: 6px 0;
+            max-height: calc(100dvh - 12px);
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .import-page *,
+          .import-page *::before,
+          .import-page *::after {
+            scroll-behavior: auto !important;
+            animation-duration: .01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: .01ms !important;
+          }
+        }
       `}</style>
 
     </main>

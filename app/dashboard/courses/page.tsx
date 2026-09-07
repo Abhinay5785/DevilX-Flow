@@ -838,6 +838,462 @@ export default function CoursesPage() {
           .course-card { height: 345px; }
           .card-click { padding: 20px; }
         }
+
+        /* FINAL RESPONSIVE OVERRIDES */
+        :global(html), :global(body) {
+          width: 100%;
+          max-width: 100%;
+          overflow-x: hidden;
+        }
+
+        .courses-page {
+          width: 100%;
+          max-width: 100%;
+          min-width: 0;
+          overflow-x: clip;
+          padding-left: clamp(16px, 3.1vw, 44px);
+          padding-right: clamp(16px, 3.1vw, 44px);
+          padding-top: clamp(22px, 3vw, 36px);
+          padding-bottom: max(52px, env(safe-area-inset-bottom));
+        }
+
+        .page-shell,
+        .page-header,
+        .header-left,
+        .header-copy,
+        .toolbar,
+        .toolbar-right,
+        .course-section,
+        .course-list,
+        .course-card,
+        .card-click,
+        .course-content {
+          min-width: 0;
+          max-width: 100%;
+        }
+
+        .header-copy p,
+        .course-content p,
+        .modal-header p,
+        .error-copy span,
+        .form-note span {
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+
+        .create-button,
+        .filter-group button,
+        .more-button,
+        .modal-close,
+        .cancel-button,
+        .save-button {
+          touch-action: manipulation;
+        }
+
+        .create-button {
+          flex: 0 0 auto;
+          white-space: nowrap;
+        }
+
+        .course-list {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .course-card {
+          height: auto;
+          min-height: 360px;
+        }
+
+        .card-click {
+          min-height: 360px;
+        }
+
+        .action-menu {
+          max-width: calc(100vw - 32px);
+        }
+
+        .modal-backdrop {
+          min-height: 100dvh;
+          padding: max(16px, env(safe-area-inset-top))
+                   max(16px, env(safe-area-inset-right))
+                   max(16px, env(safe-area-inset-bottom))
+                   max(16px, env(safe-area-inset-left));
+          overflow-y: auto;
+          overscroll-behavior: contain;
+        }
+
+        .modal {
+          max-height: calc(100dvh - 32px);
+          overflow-y: auto;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        @media (max-width: 1100px) {
+          .courses-page {
+            padding-left: 28px;
+            padding-right: 28px;
+          }
+
+          .page-header {
+            gap: 24px;
+          }
+
+          .title-line h1 {
+            font-size: 34px;
+          }
+
+          .course-list {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+
+        @media (max-width: 760px) {
+          .courses-page {
+            padding: 22px 20px max(44px, env(safe-area-inset-bottom));
+          }
+
+          .page-header {
+            align-items: stretch;
+            gap: 18px;
+            padding-bottom: 22px;
+          }
+
+          .header-left {
+            width: 100%;
+            gap: 12px;
+          }
+
+          .back-button {
+            width: 40px;
+            height: 40px;
+            flex-basis: 40px;
+          }
+
+          .title-line {
+            gap: 9px;
+            flex-wrap: wrap;
+          }
+
+          .title-line h1 {
+            font-size: clamp(28px, 7vw, 34px);
+          }
+
+          .header-copy p {
+            font-size: 14px;
+            max-width: 680px;
+          }
+
+          .create-button {
+            width: 100%;
+            min-height: 44px;
+          }
+
+          .toolbar {
+            width: 100%;
+            gap: 14px;
+            margin: 20px 0 28px;
+          }
+
+          .toolbar-right {
+            width: 100%;
+            gap: 10px;
+          }
+
+          .showing {
+            white-space: normal;
+          }
+
+          .filter-group {
+            width: 100%;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
+
+          .filter-group button {
+            min-width: 0;
+            padding-left: 8px;
+            padding-right: 8px;
+          }
+
+          .section-heading {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 7px;
+            margin-bottom: 14px;
+          }
+
+          .course-list {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 14px;
+          }
+
+          .course-card,
+          .card-click {
+            min-height: 0;
+            height: auto;
+          }
+
+          .card-click {
+            padding: 18px;
+          }
+
+          .course-mark {
+            width: 48px;
+            height: 48px;
+            flex-basis: 48px;
+            font-size: 21px;
+          }
+
+          .course-content {
+            margin-top: 15px;
+          }
+
+          .course-content h3 {
+            font-size: 19px;
+          }
+
+          .course-content p {
+            min-height: 0;
+          }
+
+          .card-footer {
+            margin-top: 20px;
+          }
+
+          .modal-backdrop {
+            align-items: flex-end;
+            padding: 10px 10px max(10px, env(safe-area-inset-bottom));
+          }
+
+          .modal {
+            width: 100%;
+            max-width: 100%;
+            max-height: min(92dvh, 720px);
+            border-radius: 12px 12px 10px 10px;
+            padding: 20px;
+          }
+
+          .modal-header {
+            gap: 10px;
+            margin-bottom: 18px;
+          }
+
+          .modal-header h2 {
+            font-size: 20px;
+          }
+
+          .modal-footer {
+            position: sticky;
+            bottom: 0;
+            margin-left: -20px;
+            margin-right: -20px;
+            margin-bottom: -20px;
+            padding: 14px 20px max(14px, env(safe-area-inset-bottom));
+            background: #101011;
+            border-top: 1px solid #202023;
+          }
+
+          .cancel-button,
+          .save-button {
+            min-height: 42px;
+          }
+        }
+
+        @media (max-width: 520px) {
+          .courses-page {
+            padding-left: 14px;
+            padding-right: 14px;
+          }
+
+          .back-button {
+            display: grid;
+          }
+
+          .header-left {
+            align-items: flex-start;
+          }
+
+          .eyebrow,
+          .section-kicker {
+            font-size: 10px;
+            letter-spacing: .09em;
+          }
+
+          .title-line h1 {
+            font-size: 29px;
+          }
+
+          .live-dot {
+            font-size: 12px;
+          }
+
+          .live-dot span {
+            width: 7px;
+            height: 7px;
+          }
+
+          .header-copy p {
+            font-size: 13px;
+            line-height: 1.5;
+          }
+
+          .search-box {
+            height: 44px;
+          }
+
+          .course-card {
+            border-radius: 10px;
+          }
+
+          .card-click {
+            padding: 16px;
+          }
+
+          .course-meta {
+            font-size: 12px;
+          }
+
+          .action-menu {
+            top: 53px;
+            right: 8px;
+            width: min(185px, calc(100vw - 30px));
+          }
+
+          .empty-state,
+          .loading-state {
+            min-height: 240px;
+            padding: 24px 16px;
+          }
+
+          .modal {
+            padding: 17px;
+          }
+
+          .modal-header {
+            margin-bottom: 16px;
+          }
+
+          .modal-header p {
+            font-size: 13px;
+          }
+
+          .form {
+            gap: 13px;
+          }
+
+          .form input {
+            height: 43px;
+          }
+
+          .modal-footer {
+            margin-left: -17px;
+            margin-right: -17px;
+            margin-bottom: -17px;
+            padding-left: 17px;
+            padding-right: 17px;
+          }
+        }
+
+        @media (max-width: 380px) {
+          .courses-page {
+            padding-left: 11px;
+            padding-right: 11px;
+          }
+
+          .header-left {
+            gap: 9px;
+          }
+
+          .back-button {
+            width: 36px;
+            height: 36px;
+            flex-basis: 36px;
+          }
+
+          .title-line h1 {
+            font-size: 26px;
+          }
+
+          .filter-group button {
+            font-size: 12px;
+            padding-left: 4px;
+            padding-right: 4px;
+          }
+
+          .card-click {
+            padding: 14px;
+          }
+
+          .course-mark {
+            width: 44px;
+            height: 44px;
+            flex-basis: 44px;
+          }
+
+          .modal-backdrop {
+            padding-left: 6px;
+            padding-right: 6px;
+          }
+
+          .modal {
+            padding: 15px;
+          }
+
+          .modal-footer {
+            flex-direction: column-reverse;
+            margin-left: -15px;
+            margin-right: -15px;
+            margin-bottom: -15px;
+            padding-left: 15px;
+            padding-right: 15px;
+          }
+
+          .cancel-button,
+          .save-button {
+            width: 100%;
+          }
+        }
+
+        @media (max-height: 620px) and (max-width: 760px) {
+          .courses-page {
+            padding-top: 14px;
+          }
+
+          .page-header {
+            padding-bottom: 16px;
+          }
+
+          .toolbar {
+            margin-top: 14px;
+            margin-bottom: 20px;
+          }
+
+          .modal {
+            max-height: 96dvh;
+          }
+        }
+
+        @media (orientation: landscape) and (max-height: 560px) {
+          .modal-backdrop {
+            align-items: flex-start;
+          }
+
+          .modal {
+            margin: 8px 0;
+            max-height: calc(100dvh - 16px);
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .courses-page *,
+          .courses-page *::before,
+          .courses-page *::after {
+            scroll-behavior: auto !important;
+            animation-duration: .01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: .01ms !important;
+          }
+        }
 `}</style>
     </main>
   );
