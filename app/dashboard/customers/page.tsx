@@ -4263,6 +4263,512 @@ export default function CustomersPage() {
         .dynamic-details-grid span { display:block; margin-bottom:5px; color:#71717a; font-size:10px; }
         .dynamic-details-grid strong { display:block; overflow-wrap:anywhere; color:#e4e4e7; font-size:12px; font-weight:500; }
         @media (max-width:700px) { .dynamic-details-grid { grid-template-columns:1fr; } }
+
+        /* =====================================================
+           FINAL RESPONSIVE OVERRIDES
+           Optimized for desktop, tablet, mobile and small phones.
+        ===================================================== */
+
+        .customers-page {
+          width: 100%;
+          max-width: 100%;
+          min-width: 0;
+          box-sizing: border-box;
+          overflow-x: clip;
+        }
+
+        .page-header,
+        .table-toolbar,
+        .header-title-row,
+        .header-actions,
+        .toolbar-actions {
+          min-width: 0;
+        }
+
+        .header-copy {
+          min-width: 0;
+        }
+
+        .header-copy h1,
+        .header-copy p,
+        .table-heading h2,
+        .table-heading p {
+          overflow-wrap: anywhere;
+        }
+
+        .header-actions button {
+          min-width: 0;
+          white-space: nowrap;
+        }
+
+        .search-box {
+          min-width: 0;
+        }
+
+        .search-box input {
+          min-width: 0;
+          width: 100%;
+        }
+
+        .filters {
+          width: 100%;
+          box-sizing: border-box;
+          flex-wrap: wrap;
+        }
+
+        .filter-field {
+          min-width: 0;
+        }
+
+        .filter-field select {
+          max-width: 100%;
+        }
+
+        .table-scroll {
+          max-width: 100%;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: thin;
+          overscroll-behavior-x: contain;
+        }
+
+        table {
+          min-width: 1450px;
+        }
+
+        .modal-background {
+          box-sizing: border-box;
+          padding:
+            max(12px, env(safe-area-inset-top))
+            max(12px, env(safe-area-inset-right))
+            max(12px, env(safe-area-inset-bottom))
+            max(12px, env(safe-area-inset-left));
+          overflow-y: auto;
+          align-items: center;
+        }
+
+        .customer-modal,
+        .details-modal,
+        .manual-payment-modal {
+          min-width: 0;
+          width: min(760px, 100%);
+          max-width: 100%;
+          max-height: calc(100dvh - 24px);
+          box-sizing: border-box;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .modal-header,
+        .form-grid,
+        .details-content {
+          min-width: 0;
+        }
+
+        .modal-header > div {
+          min-width: 0;
+        }
+
+        .modal-header h2,
+        .modal-header p {
+          overflow-wrap: anywhere;
+        }
+
+        .form-field {
+          min-width: 0;
+        }
+
+        .form-field input,
+        .form-field select {
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+
+        .pagination-buttons {
+          max-width: 100%;
+          overflow-x: auto;
+          padding-bottom: 2px;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        @media (max-width: 1100px) {
+          .customers-page {
+            padding-left: 24px;
+            padding-right: 24px;
+          }
+
+          .page-header {
+            gap: 20px;
+          }
+
+          .header-actions {
+            flex-wrap: wrap;
+          }
+
+          .header-actions button {
+            flex: 1 1 auto;
+          }
+
+          .stats-grid {
+            gap: 12px;
+          }
+        }
+
+        @media (max-width: 800px) {
+          .customers-page {
+            padding: 22px 18px 40px;
+          }
+
+          .page-header {
+            gap: 18px;
+          }
+
+          .header-title-row {
+            width: 100%;
+          }
+
+          .header-copy h1 {
+            font-size: clamp(26px, 7vw, 34px);
+          }
+
+          .header-copy p {
+            max-width: 100%;
+            line-height: 1.5;
+          }
+
+          .header-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+          }
+
+          .header-actions button {
+            width: 100%;
+            min-height: 42px;
+          }
+
+          .header-actions .primary-button {
+            grid-column: 1 / -1;
+          }
+
+          .table-toolbar {
+            gap: 14px;
+          }
+
+          .toolbar-actions {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+          }
+
+          .filter-button {
+            min-width: 92px;
+          }
+
+          .filters {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+          }
+
+          .filters .filter-field,
+          .filters .reset-button {
+            width: 100%;
+            min-width: 0;
+          }
+
+          .filters .reset-button {
+            min-height: 38px;
+          }
+
+          .pagination {
+            gap: 12px;
+          }
+
+          .pagination > span {
+            line-height: 1.5;
+          }
+
+          .pagination-buttons {
+            width: 100%;
+            justify-content: flex-start;
+          }
+
+          .customer-modal,
+          .details-modal,
+          .manual-payment-modal {
+            border-radius: 12px;
+          }
+
+          .modal-header {
+            padding: 17px;
+            gap: 12px;
+          }
+
+          .form-grid,
+          .details-content {
+            padding: 17px;
+          }
+
+          .modal-actions {
+            padding: 0 17px 17px;
+          }
+
+          .form-error {
+            margin-left: 17px;
+            margin-right: 17px;
+          }
+        }
+
+        @media (max-width: 600px) {
+          .customers-page {
+            padding: 18px 12px 32px;
+          }
+
+          .back-button {
+            padding-left: 0;
+          }
+
+          .header-title-row {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 12px;
+          }
+
+          .header-copy {
+            width: 100%;
+          }
+
+          .header-copy h1 {
+            margin-top: 4px;
+          }
+
+          .header-actions {
+            grid-template-columns: 1fr;
+          }
+
+          .header-actions .primary-button {
+            grid-column: auto;
+          }
+
+          .stats-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .stat-card {
+            min-width: 0;
+          }
+
+          .table-toolbar {
+            padding-left: 14px;
+            padding-right: 14px;
+          }
+
+          .table-heading {
+            width: 100%;
+          }
+
+          .payment-ranking-summary {
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 5px 8px;
+            line-height: 1.4;
+          }
+
+          .toolbar-actions {
+            grid-template-columns: 1fr;
+          }
+
+          .filter-button {
+            width: 100%;
+          }
+
+          .filters {
+            grid-template-columns: 1fr;
+            padding: 12px 14px;
+          }
+
+          .table-scroll {
+            border-radius: 0;
+          }
+
+          table {
+            min-width: 1180px;
+          }
+
+          th,
+          td {
+            padding-left: 12px;
+            padding-right: 12px;
+          }
+
+          .pagination {
+            padding: 12px 14px;
+          }
+
+          .pagination-buttons button {
+            flex: 0 0 auto;
+          }
+
+          .modal-background {
+            align-items: flex-start;
+          }
+
+          .customer-modal,
+          .details-modal,
+          .manual-payment-modal {
+            width: 100%;
+            max-height: calc(100dvh - 16px);
+            margin-top: 8px;
+            margin-bottom: 8px;
+            border-radius: 10px;
+          }
+
+          .modal-header {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #0c0c0d;
+          }
+
+          .modal-header p {
+            line-height: 1.5;
+          }
+
+          .form-grid {
+            grid-template-columns: 1fr;
+            gap: 13px;
+          }
+
+          .form-field.full,
+          .form-section {
+            grid-column: auto;
+          }
+
+          .detail-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .history-payment {
+            align-items: flex-start;
+            flex-direction: column;
+          }
+
+          .modal-actions {
+            position: sticky;
+            bottom: 0;
+            z-index: 2;
+            padding-top: 12px;
+            background: #0c0c0d;
+            border-top: 1px solid #202023;
+            flex-wrap: wrap;
+          }
+
+          .modal-actions > button {
+            min-height: 42px;
+          }
+
+          .delete-button {
+            width: 100%;
+            margin-right: 0;
+            justify-content: center;
+          }
+
+          .cancel,
+          .modal-actions .primary-button {
+            flex: 1 1 calc(50% - 4px);
+          }
+
+          .dynamic-details-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        @media (max-width: 380px) {
+          .customers-page {
+            padding-left: 9px;
+            padding-right: 9px;
+          }
+
+          .eyebrow {
+            font-size: 9px;
+          }
+
+          .header-copy h1 {
+            font-size: 26px;
+          }
+
+          .header-copy p {
+            font-size: 11px;
+          }
+
+          .stat-card {
+            padding: 14px;
+          }
+
+          .table-heading h2 {
+            font-size: 15px;
+          }
+
+          .table-heading p {
+            font-size: 10px;
+          }
+
+          .pagination {
+            padding-left: 10px;
+            padding-right: 10px;
+          }
+
+          .pagination-buttons button {
+            min-width: 32px;
+            height: 32px;
+            padding-left: 7px;
+            padding-right: 7px;
+          }
+
+          .pagination-buttons button:not(.active):not(:first-child):not(:last-child) {
+            display: none;
+          }
+
+          .modal-header,
+          .form-grid,
+          .details-content {
+            padding-left: 13px;
+            padding-right: 13px;
+          }
+
+          .modal-actions {
+            padding-left: 13px;
+            padding-right: 13px;
+          }
+
+          .form-error {
+            margin-left: 13px;
+            margin-right: 13px;
+          }
+        }
+
+        @media (max-height: 620px) and (max-width: 800px) {
+          .modal-background {
+            align-items: flex-start;
+          }
+
+          .customer-modal,
+          .details-modal,
+          .manual-payment-modal {
+            max-height: calc(100dvh - 12px);
+            margin-top: 6px;
+            margin-bottom: 6px;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          *,
+          *::before,
+          *::after {
+            scroll-behavior: auto !important;
+          }
+        }
+
       `}</style>
 
     </main>

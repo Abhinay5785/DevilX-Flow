@@ -1210,45 +1210,188 @@ export default function HomePage() {
           }
         }
 
-
         /* =====================================================
-           MOBILE
+           RESPONSIVE DEVICES
+           Desktop → tablet → mobile → very small phones
         ===================================================== */
 
-        @media (max-width: 600px) {
-          .brand {
-            font-size: 57px;
+        /* Prevent viewport-width surprises on mobile browsers. */
+        .devilx-intro {
+          width: 100%;
+          min-width: 0;
+          min-height: 100dvh;
+          height: 100dvh;
+        }
 
-            letter-spacing: -4px;
+        .logo-container {
+          width: min(100%, 1200px);
+          padding-inline: 24px;
+          box-sizing: border-box;
+        }
+
+        .brand {
+          max-width: 100%;
+        }
+
+        .developer {
+          max-width: calc(100% - 32px);
+          text-align: center;
+          overflow-wrap: anywhere;
+        }
+
+        /* Tablets and compact laptops */
+        @media (max-width: 900px) {
+          .back-x {
+            font-size: 58vw;
+          }
+
+          .brand {
+            font-size: clamp(52px, 10vw, 92px);
+            letter-spacing: -5px;
           }
 
           .flow {
-            margin-left: 8px;
-
-            letter-spacing: -3px;
+            margin-left: 10px;
+            letter-spacing: -4px;
           }
 
           .energy-line {
-            width: 150px;
-          }
-
-          .subtitle {
-            font-size: 8px;
-
-            letter-spacing: 3px;
-          }
-
-          .developer {
-            bottom: 25px;
-
-            font-size: 10px;
-          }
-
-          .back-x {
-            font-size: 70vw;
+            width: clamp(145px, 24vw, 190px);
           }
         }
 
+        /* Phones */
+        @media (max-width: 600px) {
+          .logo-container {
+            padding-inline: 16px;
+            transform: translateY(-4px);
+          }
+
+          .brand {
+            width: 100%;
+            justify-content: center;
+            font-size: clamp(34px, 13.5vw, 58px);
+            letter-spacing: clamp(-3px, -0.9vw, -2px);
+          }
+
+          .flow {
+            margin-left: clamp(5px, 1.8vw, 8px);
+            letter-spacing: clamp(-2px, -0.7vw, -1px);
+          }
+
+          .original-x::before {
+            width: clamp(58px, 18vw, 90px);
+            height: clamp(58px, 18vw, 90px);
+            filter: blur(22px);
+          }
+
+          .energy-line {
+            width: min(150px, 42vw);
+            margin-top: 24px;
+          }
+
+          .subtitle {
+            max-width: 90vw;
+            font-size: clamp(7px, 2.2vw, 8px);
+            letter-spacing: clamp(2px, 0.9vw, 3px);
+            text-align: center;
+          }
+
+          .developer {
+            bottom: max(20px, env(safe-area-inset-bottom));
+            font-size: clamp(9px, 2.8vw, 10px);
+            letter-spacing: 1px;
+          }
+
+          .back-x {
+            font-size: 76vw;
+          }
+
+          .particles span {
+            width: 1.5px;
+            height: 1.5px;
+          }
+        }
+
+        /* Small phones such as 320–360px wide */
+        @media (max-width: 380px) {
+          .logo-container {
+            padding-inline: 10px;
+          }
+
+          .brand {
+            font-size: clamp(30px, 13vw, 48px);
+            letter-spacing: -2px;
+          }
+
+          .flow {
+            margin-left: 4px;
+            letter-spacing: -1.5px;
+          }
+
+          .energy-line {
+            width: 125px;
+            margin-top: 20px;
+          }
+
+          .subtitle {
+            font-size: 7px;
+            letter-spacing: 2px;
+          }
+
+          .developer {
+            max-width: calc(100% - 20px);
+            bottom: max(14px, env(safe-area-inset-bottom));
+            font-size: 8.5px;
+          }
+
+          .back-x {
+            font-size: 88vw;
+          }
+        }
+
+        /* Landscape phones: keep the composition from becoming too tall. */
+        @media (max-width: 900px) and (orientation: landscape) {
+          .logo-container {
+            transform: translateY(-2vh);
+          }
+
+          .brand {
+            font-size: clamp(32px, 8vw, 72px);
+          }
+
+          .energy-line {
+            margin-top: 14px;
+          }
+
+          .subtitle {
+            margin-top: 9px;
+          }
+
+          .developer {
+            bottom: max(10px, env(safe-area-inset-bottom));
+          }
+        }
+
+        /* Very short screens */
+        @media (max-height: 500px) {
+          .logo-container {
+            transform: scale(0.88);
+          }
+
+          .developer {
+            bottom: max(8px, env(safe-area-inset-bottom));
+          }
+        }
+
+        /* Safe-area support for iPhone/Android gesture areas. */
+        @supports (padding: env(safe-area-inset-bottom)) {
+          .devilx-intro {
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+            box-sizing: border-box;
+          }
+        }
 
         /* =====================================================
            REDUCED MOTION

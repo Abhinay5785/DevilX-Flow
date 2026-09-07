@@ -382,7 +382,7 @@ export default function DashboardPage() {
 
   return (
     <div className="devilx-dashboard min-h-screen bg-black text-white selection:bg-[#ff1744]/30">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen overflow-x-hidden">
         {/* SIDEBAR */}
         <aside className="hidden w-[252px] shrink-0 flex-col border-r border-white/[0.08] bg-[#050505] lg:flex">
           <div className="border-b border-white/[0.06] px-5 pb-6 pt-6">
@@ -444,18 +444,44 @@ export default function DashboardPage() {
         </aside>
 
         {/* MAIN */}
-        <main className="min-w-0 flex-1 bg-black">
-          <div className="px-5 py-6 sm:px-7 lg:px-9">
-            <section className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <main className="min-w-0 flex-1 bg-black pb-24 lg:pb-0">
+          {/* MOBILE HEADER */}
+          <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/[0.08] bg-black/90 px-3 py-3 backdrop-blur-xl lg:hidden sm:px-5">
+            <Link href="/dashboard" className="flex min-w-0 items-center gap-2.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#ff1744] to-[#c90032] shadow-[0_0_24px_rgba(255,23,68,0.22)]">
+                <span className="text-base font-black">X</span>
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1">
+                  <span className="text-[16px] font-bold tracking-tight">DevilX</span>
+                  <span className="text-[16px] font-bold tracking-tight text-[#ff1744]">Flow</span>
+                </div>
+                <p className="truncate text-[9px] font-medium uppercase tracking-[0.14em] text-slate-600">
+                  Automation Platform
+                </p>
+              </div>
+            </Link>
+
+            <Link
+              href="/dashboard/settings"
+              aria-label="Settings"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.02] text-slate-400 transition hover:bg-white/[0.06] hover:text-white"
+            >
+              <Settings size={16} />
+            </Link>
+          </header>
+
+          <div className="mx-auto w-full max-w-[1800px] px-3 py-4 sm:px-5 sm:py-6 md:px-7 lg:px-9">
+            <section className="mb-4 flex flex-col gap-3 sm:mb-5 sm:gap-4 xl:flex-row xl:items-end xl:justify-between">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#ff1744]">Overview</p>
-                <h1 className="mt-1 text-3xl font-bold tracking-[-0.03em] text-white sm:text-[34px]">Dashboard</h1>
-                <p className="mt-1.5 text-sm text-slate-400">
+                <h1 className="mt-1 text-[28px] font-bold tracking-[-0.03em] text-white sm:text-3xl md:text-[34px]">Dashboard</h1>
+                <p className="mt-1.5 max-w-[620px] text-xs leading-5 text-slate-400 sm:text-sm">
                   Monitor customers, revenue, payments and automation activity.
                 </p>
               </div>
 
-              <div className="flex w-fit items-center gap-2 rounded-xl border border-white/[0.08] bg-[#0b0c0e] px-3 py-2">
+              <div className="flex w-fit max-w-full items-center gap-2 rounded-xl border border-white/[0.08] bg-[#0b0c0e] px-2.5 py-2 sm:px-3">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#ff1744]/10 text-[#ff1744]">
                   <CalendarDays size={15} />
                 </div>
@@ -472,7 +498,7 @@ export default function DashboardPage() {
               </div>
             </section>
 
-            <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <section className="mb-4 grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4 sm:mb-5">
               {stats.map((stat, index) => {
                 const Icon = stat.icon;
                 const accents = [
@@ -505,7 +531,7 @@ export default function DashboardPage() {
                 return (
                   <div
                     key={stat.title}
-                    className={`group relative overflow-hidden rounded-2xl border ${accents.border} bg-[#0c0d10] p-5 shadow-[0_14px_40px_rgba(0,0,0,0.3)] transition duration-300 hover:-translate-y-0.5 hover:bg-[#101115]`}
+                    className={`group relative min-w-0 overflow-hidden rounded-2xl border ${accents.border} bg-[#0c0d10] p-4 shadow-[0_14px_40px_rgba(0,0,0,0.3)] transition duration-300 hover:-translate-y-0.5 hover:bg-[#101115] sm:p-5`}
                   >
                     <div className={`absolute -right-10 -top-10 h-28 w-28 rounded-full ${accents.glow} blur-3xl`} />
                     <div className={`absolute inset-x-6 top-0 h-px bg-gradient-to-r ${accents.line}`} />
@@ -519,8 +545,8 @@ export default function DashboardPage() {
                           {stat.change}
                         </span>
                       </div>
-                      <p className="mt-6 text-xs font-medium text-slate-400">{stat.title}</p>
-                      <p className="mt-1 text-[29px] font-bold tracking-tight text-white">{stat.value}</p>
+                      <p className="mt-5 text-xs font-medium text-slate-400 sm:mt-6">{stat.title}</p>
+                      <p className="mt-1 break-words text-[24px] font-bold tracking-tight text-white sm:text-[29px]">{stat.value}</p>
                     </div>
                   </div>
                 );
@@ -529,9 +555,9 @@ export default function DashboardPage() {
 
             <section>
               <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0b0c0e] shadow-[0_16px_50px_rgba(0,0,0,0.28)]">
-                <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4 sm:px-6">
+                <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-3.5 py-3.5 sm:px-5 sm:py-4 md:px-6">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ff1744]/10 text-[#ff1744]">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#ff1744]/10 text-[#ff1744]">
                       <CreditCard size={17} />
                     </div>
                     <div>
@@ -541,14 +567,14 @@ export default function DashboardPage() {
                   </div>
                   <Link
                     href="/dashboard/customers"
-                    className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white"
+                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.02] px-2.5 py-2 text-[11px] font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white sm:px-3 sm:text-xs"
                   >
                     View all
                     <ArrowUpRight size={13} />
                   </Link>
                 </div>
 
-                <div className="px-4 pb-3 pt-2 sm:px-5">
+                <div className="px-2.5 pb-3 pt-2 sm:px-4 md:px-5">
                   <div className="hidden grid-cols-[minmax(130px,1.3fr)_minmax(80px,0.8fr)_80px_90px_88px_70px_28px] gap-3 rounded-lg bg-[#111317] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-600 md:grid">
                     <span>Student</span>
                     <span>Course</span>
@@ -577,11 +603,11 @@ export default function DashboardPage() {
                         return (
                           <div
                             key={payment.id}
-                            className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-3 transition hover:bg-white/[0.025] md:grid-cols-[minmax(130px,1.3fr)_minmax(80px,0.8fr)_80px_90px_88px_70px_28px]"
+                            className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-2.5 py-3.5 transition hover:bg-white/[0.025] sm:px-3 md:grid-cols-[minmax(130px,1.3fr)_minmax(80px,0.8fr)_80px_90px_88px_70px_28px] md:py-3"
                           >
                             <div className="flex min-w-0 items-center gap-2.5">
                               <div
-                                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[10px] font-bold sm:h-8 sm:w-8 ${
                                   captured
                                     ? "bg-[#ff1744]/15 text-[#ff6b88]"
                                     : failed
@@ -597,10 +623,35 @@ export default function DashboardPage() {
                                   .toUpperCase()}
                               </div>
                               <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold text-slate-100">{payment.name}</p>
-                                <p className="mt-0.5 truncate text-[10px] text-slate-600">
+                                <p className="truncate text-[13px] font-semibold text-slate-100 sm:text-sm">{payment.name}</p>
+                                <p className="mt-0.5 truncate text-[9px] text-slate-600 sm:text-[10px]">
                                   {payment.paymentId || "Payment"}
                                 </p>
+
+                                {/* Mobile-only payment details */}
+                                <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 md:hidden">
+                                  <span className="max-w-[150px] truncate text-[10px] font-medium text-slate-500">
+                                    {normalizeCourse(payment.course) || "—"}
+                                  </span>
+                                  <span className="text-slate-700">•</span>
+                                  <span className="text-[10px] text-slate-500">
+                                    {getDisplayBatch(payment.course, payment.batch)}
+                                  </span>
+                                  <span
+                                    className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${
+                                      captured
+                                        ? "bg-emerald-400/10 text-emerald-300"
+                                        : failed
+                                          ? "bg-red-400/10 text-red-300"
+                                          : "bg-amber-400/10 text-amber-300"
+                                    }`}
+                                  >
+                                    {captured ? "Captured" : failed ? "Failed" : "Pending"}
+                                  </span>
+                                  <span className="text-[9px] text-slate-600">
+                                    {formatRelativeTime(payment.paymentTime)}
+                                  </span>
+                                </div>
                               </div>
                             </div>
 
@@ -613,6 +664,7 @@ export default function DashboardPage() {
                             <span className="text-right text-sm font-bold text-slate-100 md:text-left">
                               ₹{payment.amount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
                             </span>
+
                             <span
                               className={`hidden w-fit rounded-full px-2 py-1 text-[10px] font-bold md:block ${
                                 captured
@@ -627,7 +679,11 @@ export default function DashboardPage() {
                             <span className="hidden text-[10px] text-slate-500 md:block">
                               {formatRelativeTime(payment.paymentTime)}
                             </span>
-                            <button className="hidden h-7 w-7 items-center justify-center rounded-lg text-slate-600 transition hover:bg-white/[0.05] hover:text-slate-300 md:flex">
+                            <button
+                              type="button"
+                              aria-label={`More options for ${payment.name}`}
+                              className="hidden h-7 w-7 items-center justify-center rounded-lg text-slate-600 transition hover:bg-white/[0.05] hover:text-slate-300 md:flex"
+                            >
                               <MoreHorizontal size={15} />
                             </button>
                           </div>
@@ -640,9 +696,30 @@ export default function DashboardPage() {
             </section>
           </div>
         </main>
+
+        {/* MOBILE BOTTOM NAV */}
+        <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.08] bg-[#050505]/95 px-1.5 pb-[env(safe-area-inset-bottom)] pt-1.5 backdrop-blur-xl lg:hidden">
+          <div className="mx-auto grid max-w-[680px] grid-cols-6">
+            <MobileNavItem icon={<LayoutDashboard size={17} />} label="Home" href="/dashboard" active />
+            <MobileNavItem icon={<Users size={17} />} label="Customers" href="/dashboard/customers" />
+            <MobileNavItem icon={<CreditCard size={17} />} label="Courses" href="/dashboard/courses" />
+            <MobileNavItem icon={<CircleDollarSign size={17} />} label="Revenue" href="/dashboard/revenue" />
+            <MobileNavItem icon={<MessageCircle size={17} />} label="WhatsApp" href="/dashboard/whatsapp" />
+            <MobileNavItem icon={<BarChart3 size={17} />} label="Analytics" href="/dashboard/analytics" />
+          </div>
+        </nav>
       </div>
 
       <style jsx global>{`
+        html {
+          overflow-x: hidden;
+        }
+
+        .devilx-dashboard {
+          overflow-x: hidden;
+          -webkit-tap-highlight-color: transparent;
+        }
+
         .devilx-dashboard,
         .devilx-dashboard button,
         .devilx-dashboard a,
@@ -698,6 +775,33 @@ function formatRelativeTime(value: string) {
     month: "short",
     year: "numeric",
   });
+}
+
+function MobileNavItem({
+  icon,
+  label,
+  href,
+  active = false,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  href: string;
+  active?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={
+        "flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-[9px] font-semibold transition-all " +
+        (active
+          ? "bg-[#ff1744]/10 text-[#ff5d79]"
+          : "text-slate-500 hover:bg-white/[0.04] hover:text-slate-200")
+      }
+    >
+      {icon}
+      <span className="max-w-full truncate">{label}</span>
+    </Link>
+  );
 }
 
 function SidebarItem({
