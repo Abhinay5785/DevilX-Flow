@@ -7,13 +7,13 @@ import { useEffect, useState } from "react";
 import {
   ArrowUpRight,
   BarChart3,
-  Bell,
+  CalendarDays,
   CircleDollarSign,
+  CreditCard,
   LayoutDashboard,
   MessageCircle,
-  Plus,
+  MoreHorizontal,
   Settings,
-  Sparkles,
   Users,
   Workflow,
   Zap,
@@ -24,7 +24,7 @@ import { createClient } from "@/lib/supabase/client";
 type DashboardStats = {
   totalCustomers: number;
   totalRevenue: number;
-  activeFlows: number;
+  thisMonthRevenue: number;
   paymentsReceived: number;
 };
 
@@ -39,10 +39,28 @@ type RecentPayment = {
   paymentTime: string;
 };
 
+function normalizeCourse(value: unknown) {
+  const course = String(value ?? "").trim().replace(/\\s+/g, " ");
+
+  if (course.toLowerCase() === "consultation") {
+    return "Consultation";
+  }
+
+  return course;
+}
+
+function getDisplayBatch(course?: string | null, batch?: string | null) {
+  if (normalizeCourse(course).toLowerCase() === "consultation") {
+    return "No Batch";
+  }
+
+  return String(batch ?? "").trim() || "Not assigned";
+}
+
 const EMPTY_STATS: DashboardStats = {
   totalCustomers: 0,
   totalRevenue: 0,
-  activeFlows: 0,
+  thisMonthRevenue: 0,
   paymentsReceived: 0,
 };
 
@@ -81,7 +99,9 @@ export default function DashboardPage() {
               payments (
                 amount,
                 status,
-                payment_time
+                payment_time,
+                course,
+                batch
               )
             `,
           ),
@@ -96,10 +116,10 @@ export default function DashboardPage() {
               payment_time,
               customer_id,
               customers (
-                name,
-                course,
-                batch
-              )
+                name
+              ),
+              course,
+              batch
             `,
           )
           .order("payment_time", { ascending: false })
@@ -153,23 +173,66 @@ export default function DashboardPage() {
           0,
         );
 
-        const flowKeys = new Set<string>();
+        // Calculate revenue for the current calendar month in IST.
+        // The database stores payment_time as a timestamp, so comparing
+        // against UTC boundaries derived from IST keeps the dashboard
+        // correct for Indian business dates.
+        const now = new Date();
+        const istParts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Kolkata",
+          year: "numeric",
+          month: "2-digit",
+        }).formatToParts(now);
+        const istYear = Number(
+          istParts.find((part) => part.type === "year")?.value || now.getUTCFullYear(),
+        );
+        const istMonth = Number(
+          istParts.find((part) => part.type === "month")?.value || now.getUTCMonth() + 1,
+        );
 
-        customers.forEach((customer) => {
-          const course = String(
-            customer.course || "",
-          ).trim();
+        const monthStartUtc = new Date(
+          Date.UTC(istYear, istMonth - 1, 1, -5, -30, 0, 0),
+        );
+        const nextMonthStartUtc = new Date(
+          Date.UTC(istYear, istMonth, 1, -5, -30, 0, 0),
+        );
 
-          const batch = String(
-            customer.batch || "",
-          ).trim();
+        const isSuccessfulPayment = (statusValue: unknown) => {
+          const status = String(statusValue || "").toLowerCase();
+          return (
+            status === "captured" ||
+            status === "paid" ||
+            status === "success" ||
+            status === "successful"
+          );
+        };
 
-          if (course || batch) {
-            flowKeys.add(
-              `${course.toLowerCase()}::${batch.toLowerCase()}`,
+        const thisMonthRevenue = customers.reduce(
+          (total, customer) => {
+            const customerPayments = Array.isArray(customer.payments)
+              ? customer.payments
+              : [];
+
+            return (
+              total +
+              customerPayments.reduce((paymentTotal, payment) => {
+                if (!isSuccessfulPayment(payment.status)) return paymentTotal;
+
+                const paymentDate = new Date(String(payment.payment_time || ""));
+                if (
+                  !Number.isFinite(paymentDate.getTime()) ||
+                  paymentDate < monthStartUtc ||
+                  paymentDate >= nextMonthStartUtc
+                ) {
+                  return paymentTotal;
+                }
+
+                return paymentTotal + Number(payment.amount || 0);
+              }, 0)
             );
-          }
-        });
+          },
+          0,
+        );
 
         const paymentsReceived = customers.reduce(
           (total, customer) => {
@@ -200,7 +263,7 @@ export default function DashboardPage() {
         setDashboardStats({
           totalCustomers: customers.length,
           totalRevenue,
-          activeFlows: flowKeys.size,
+          thisMonthRevenue,
           paymentsReceived,
         });
       }
@@ -228,8 +291,8 @@ export default function DashboardPage() {
               ),
               amount: Number(payment.amount || 0),
               status: String(payment.status || "pending"),
-              course: customer?.course || null,
-              batch: customer?.batch || null,
+              course: normalizeCourse(payment.course) || null,
+              batch: payment.batch || null,
               paymentTime: String(
                 payment.payment_time ||
                   new Date().toISOString(),
@@ -301,10 +364,13 @@ export default function DashboardPage() {
       icon: CircleDollarSign,
     },
     {
-      title: "Active Flows",
-      value: dashboardStats.activeFlows.toLocaleString("en-IN"),
+      title: "This Month Revenue",
+      value: `₹${dashboardStats.thisMonthRevenue.toLocaleString(
+        "en-IN",
+        { maximumFractionDigits: 0 },
+      )}`,
       change: statsLoading ? "Loading..." : "Live",
-      icon: Workflow,
+      icon: CircleDollarSign,
     },
     {
       title: "Payments Received",
@@ -315,563 +381,282 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white">
+    <div className="devilx-dashboard min-h-screen bg-black text-white selection:bg-[#ff1744]/30">
       <div className="flex min-h-screen">
-
         {/* SIDEBAR */}
-        <aside className="hidden w-[260px] shrink-0 flex-col border-r border-white/[0.06] bg-[#080808] lg:flex">
-
-          {/* BRAND */}
-          <div className="px-6 pb-8 pt-7">
+        <aside className="hidden w-[252px] shrink-0 flex-col border-r border-white/[0.08] bg-[#050505] lg:flex">
+          <div className="border-b border-white/[0.06] px-5 pb-6 pt-6">
             <div className="flex items-center gap-3">
-
-              <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-[#ff1744] shadow-[0_0_30px_rgba(255,23,68,0.25)]">
-                <span className="relative z-10 text-lg font-black">
-                  X
-                </span>
-
-                <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent" />
+              <div className="relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-[#ff1744] to-[#c90032] shadow-[0_0_28px_rgba(255,23,68,0.25)]">
+                <span className="text-xl font-black">X</span>
               </div>
-
               <div>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[17px] font-bold tracking-tight">
-                    DevilX
-                  </span>
-
-                  <span className="text-[17px] font-bold tracking-tight text-[#ff1744]">
-                    Flow
-                  </span>
+                  <span className="text-[18px] font-bold tracking-tight">DevilX</span>
+                  <span className="text-[18px] font-bold tracking-tight text-[#ff1744]">Flow</span>
                 </div>
-
-                <p className="mt-0.5 text-xs uppercase tracking-[2px] text-white/30">
+                <p className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-slate-500">
                   Automation Platform
                 </p>
               </div>
-
             </div>
           </div>
 
-          {/* NAVIGATION */}
-          <div className="flex-1 px-4">
-
-            <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-[2px] text-white/25">
+          <div className="flex-1 px-4 py-6">
+            <p className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
               Workspace
             </p>
-
             <nav className="space-y-1">
-
-              <SidebarItem
-                icon={<LayoutDashboard size={17} />}
-                label="Dashboard"
-                href="/dashboard"
-                active
-              />
-
-              <SidebarItem
-                icon={<Users size={17} />}
-                label="Customers"
-                href="/dashboard/customers"
-                
-              />
-
-              <SidebarItem
-                icon={<CircleDollarSign size={17} />}
-                label="Revenue"
-                href="/dashboard/revenue"
-                
-              />
-
-              <SidebarItem
-                icon={<MessageCircle size={17} />}
-                label="WhatsApp"
-                href="/dashboard/whatsapp"
-                
-              />
-
-              <SidebarItem
-                icon={<BarChart3 size={17} />}
-                label="Analytics"
-                href="/dashboard/analytics"
-                
-              />
-
+              <SidebarItem icon={<LayoutDashboard size={17} />} label="Dashboard" href="/dashboard" active />
+              <SidebarItem icon={<Users size={17} />} label="Customers" href="/dashboard/customers" />
+              <SidebarItem icon={<CreditCard size={17} />} label="Courses" href="/dashboard/courses" />
+              <SidebarItem icon={<CircleDollarSign size={17} />} label="Revenue" href="/dashboard/revenue" />
+              <SidebarItem icon={<MessageCircle size={17} />} label="WhatsApp" href="/dashboard/whatsapp" />
+              <SidebarItem icon={<BarChart3 size={17} />} label="Analytics" href="/dashboard/analytics" />
             </nav>
 
-            <p className="mb-3 mt-9 px-3 text-xs font-semibold uppercase tracking-[2px] text-white/25">
+            <div className="my-7 h-px bg-white/[0.06]" />
+
+            <p className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
               System
             </p>
-
             <nav>
-              <SidebarItem
-                icon={<Settings size={17} />}
-                label="Settings"
-                href="/dashboard/settings"
-                
-              />
+              <SidebarItem icon={<Settings size={17} />} label="Settings" href="/dashboard/settings" />
             </nav>
-
           </div>
 
-          {/* CREATE FLOW CARD */}
           <div className="px-4 pb-4">
-            <div className="relative overflow-hidden rounded-2xl border border-white/[0.07] bg-[#101010] p-4">
-
-              <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-[#ff1744]/10 blur-2xl" />
-
-              <div className="relative">
-
-                <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-lg bg-[#ff1744]/10 text-[#ff1744]">
+            <div className="rounded-2xl border border-white/[0.07] bg-gradient-to-br from-[#111216] to-[#08090a] p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#ff1744]/10 text-[#ff1744]">
                   <Zap size={15} />
                 </div>
-
-                <p className="text-xs font-semibold">
-                  Build your next flow
-                </p>
-
-                <p className="mt-1 text-xs leading-4 text-white/35">
-                  Automate conversations and grow faster.
-                </p>
-
-                <Link
-                  href="/dashboard/whatsapp"
-                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-white py-2 text-xs font-semibold text-black transition hover:bg-white/90"
-                >
-                  <Plus size={13} />
-                  Create Flow
-                </Link>
-
+                <span className="text-[10px] font-semibold text-emerald-400">ONLINE</span>
               </div>
+              <p className="text-sm font-semibold text-slate-100">DevilX Flow</p>
+              <p className="mt-1 text-xs text-slate-500">All services operational</p>
+            </div>
+            <div className="mt-3 flex items-center justify-between px-1 text-[10px] text-slate-600">
+              <span>DevilX Flow</span>
+              <span>v1.0.0</span>
             </div>
           </div>
-
-
         </aside>
 
         {/* MAIN */}
-        <main className="min-w-0 flex-1 bg-[#050505]">
-
-          {/* TOP BAR */}
-          <header className="flex h-[72px] items-center justify-between border-b border-white/[0.06] px-5 sm:px-7 lg:px-10">
-
-            <div>
-              <p className="text-xs uppercase tracking-[2px] text-white/25">
-                Overview
-              </p>
-
-              <h1 className="mt-1 text-sm font-medium text-white/80">
-                Dashboard
-              </h1>
-            </div>
-
-            <div className="flex items-center gap-3">
-
-              <button className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.07] bg-white/[0.025] text-white/50 transition hover:bg-white/[0.06] hover:text-white">
-
-                <Bell size={16} />
-
-                <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-[#ff1744] shadow-[0_0_8px_#ff1744]" />
-
-              </button>
-
-              <div className="hidden h-6 w-px bg-white/[0.08] sm:block" />
-
-              <div className="hidden items-center gap-2 sm:flex">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
-                <span className="text-xs font-medium text-white/45">
-                  Live
-                </span>
+        <main className="min-w-0 flex-1 bg-black">
+          <div className="px-5 py-6 sm:px-7 lg:px-9">
+            <section className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#ff1744]">Overview</p>
+                <h1 className="mt-1 text-3xl font-bold tracking-[-0.03em] text-white sm:text-[34px]">Dashboard</h1>
+                <p className="mt-1.5 text-sm text-slate-400">
+                  Monitor customers, revenue, payments and automation activity.
+                </p>
               </div>
 
-            </div>
-
-          </header>
-
-          {/* CONTENT */}
-          <div className="px-5 py-7 sm:px-7 lg:px-10 lg:py-9">
-
-            {/* WELCOME */}
-            <section className="relative mb-7 overflow-hidden rounded-3xl border border-white/[0.07] bg-[#0c0c0c]">
-
-              <div className="absolute -right-24 -top-32 h-[320px] w-[320px] rounded-full bg-[#ff1744]/10 blur-[100px]" />
-
-              <div className="absolute -bottom-32 left-1/3 h-[220px] w-[220px] rounded-full bg-[#ff1744]/5 blur-[90px]" />
-
-              {/* FLOW DECORATION */}
-              <div className="pointer-events-none absolute right-0 top-0 h-full w-[45%] overflow-hidden opacity-40">
-
-                <div className="flow-line flow-line-one" />
-                <div className="flow-line flow-line-two" />
-                <div className="flow-line flow-line-three" />
-
-              </div>
-
-              <div className="relative z-10 px-6 py-7 sm:px-8 sm:py-9 lg:px-10 lg:py-10">
-
-                <div className="max-w-2xl">
-
-                  <div className="mb-4 flex items-center gap-2">
-
-                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#ff1744]/10 text-[#ff1744]">
-                      <Sparkles size={13} />
-                    </div>
-
-                    <span className="text-xs font-semibold uppercase tracking-[2px] text-[#ff1744]">
-                      DevilX Flow
-                    </span>
-
-                  </div>
-
-                  <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl lg:text-[40px] lg:leading-[1.1]">
-                    Welcome back
-                    <span className="text-[#ff1744]">
-                      .
-                    </span>
-                  </h2>
-
-                  <p className="mt-4 max-w-xl text-sm leading-6 text-white/40">
-                    Everything is flowing. Monitor your customers,
-                    revenue, and automations from one powerful
-                    workspace.
-                  </p>
-
-                  <div className="mt-7 flex flex-wrap gap-3">
-
-                    <Link
-                      href="/dashboard/whatsapp"
-                      className="flex items-center gap-2 rounded-xl bg-[#ff1744] px-4 py-2.5 text-xs font-semibold text-white shadow-[0_0_25px_rgba(255,23,68,0.18)] transition hover:bg-[#e9143e]"
-                    >
-                      <Plus size={14} />
-                      Create Flow
-                    </Link>
-
-                    <Link
-                      href="/dashboard/analytics"
-                      className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.025] px-4 py-2.5 text-xs font-semibold text-white/70 transition hover:bg-white/[0.06] hover:text-white"
-                    >
-                      View Analytics
-                      <ArrowUpRight size={14} />
-                    </Link>
-
-                  </div>
-
+              <div className="flex w-fit items-center gap-2 rounded-xl border border-white/[0.08] bg-[#0b0c0e] px-3 py-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#ff1744]/10 text-[#ff1744]">
+                  <CalendarDays size={15} />
                 </div>
-
+                <div>
+                  <p className="text-xs font-semibold text-slate-200">Today</p>
+                  <p className="text-[10px] text-slate-500">
+                    {new Date().toLocaleDateString("en-IN", {
+                      day: "2-digit",
+                      month: "long",
+                      year: "numeric",
+                    })}
+                  </p>
+                </div>
               </div>
-
             </section>
 
-            {/* STATS */}
-            <section className="mb-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-
-              {stats.map((stat) => {
-
+            <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {stats.map((stat, index) => {
                 const Icon = stat.icon;
+                const accents = [
+                  {
+                    border: "border-[#ff1744]/35",
+                    glow: "bg-[#ff1744]/[0.08]",
+                    icon: "bg-[#ff1744]/10 text-[#ff6683]",
+                    line: "from-transparent via-[#ff1744] to-transparent",
+                  },
+                  {
+                    border: "border-[#ff1744]/30",
+                    glow: "bg-[#ff1744]/[0.06]",
+                    icon: "bg-[#ff1744]/10 text-[#ff6683]",
+                    line: "from-transparent via-[#ff1744]/80 to-transparent",
+                  },
+                  {
+                    border: "border-[#7c3aed]/30",
+                    glow: "bg-[#7c3aed]/[0.07]",
+                    icon: "bg-[#7c3aed]/10 text-[#a78bfa]",
+                    line: "from-transparent via-[#8b5cf6]/80 to-transparent",
+                  },
+                  {
+                    border: "border-[#f97316]/30",
+                    glow: "bg-[#f97316]/[0.07]",
+                    icon: "bg-[#f97316]/10 text-[#fb923c]",
+                    line: "from-transparent via-[#f97316]/80 to-transparent",
+                  },
+                ][index % 4];
 
                 return (
                   <div
                     key={stat.title}
-                    className="group relative overflow-hidden rounded-2xl border border-white/[0.07] bg-[#0b0b0b] p-5 transition duration-300 hover:border-white/[0.12]"
+                    className={`group relative overflow-hidden rounded-2xl border ${accents.border} bg-[#0c0d10] p-5 shadow-[0_14px_40px_rgba(0,0,0,0.3)] transition duration-300 hover:-translate-y-0.5 hover:bg-[#101115]`}
                   >
-
-                    <div className="absolute -right-10 -top-10 h-24 w-24 rounded-full bg-[#ff1744]/0 blur-2xl transition duration-500 group-hover:bg-[#ff1744]/5" />
-
+                    <div className={`absolute -right-10 -top-10 h-28 w-28 rounded-full ${accents.glow} blur-3xl`} />
+                    <div className={`absolute inset-x-6 top-0 h-px bg-gradient-to-r ${accents.line}`} />
                     <div className="relative">
-
-                      <div className="mb-6 flex items-center justify-between">
-
-                        <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.025] text-white/60">
-                          <Icon size={16} />
+                      <div className="flex items-start justify-between">
+                        <div className={`flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.07] ${accents.icon}`}>
+                          <Icon size={18} />
                         </div>
-
-                        <div className="flex items-center gap-1 text-xs font-semibold text-emerald-400">
-                          <ArrowUpRight size={12} />
+                        <span className="flex items-center gap-1 rounded-full bg-emerald-400/[0.07] px-2 py-1 text-[10px] font-semibold text-emerald-300">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                           {stat.change}
-                        </div>
-
+                        </span>
                       </div>
-
-                      <p className="text-xs text-white/30">
-                        {stat.title}
-                      </p>
-
-                      <p className="mt-1 text-2xl font-bold tracking-tight">
-                        {stat.value}
-                      </p>
-
+                      <p className="mt-6 text-xs font-medium text-slate-400">{stat.title}</p>
+                      <p className="mt-1 text-[29px] font-bold tracking-tight text-white">{stat.value}</p>
                     </div>
-
                   </div>
                 );
               })}
-
             </section>
 
-            {/* LOWER CONTENT */}
-            <section className="grid gap-5 xl:grid-cols-[1.45fr_0.85fr]">
-
-              {/* RECENT PAYMENTS */}
-              <div className="rounded-2xl border border-white/[0.07] bg-[#0b0b0b] p-5 sm:p-6">
-
-                <div className="mb-6 flex items-center justify-between">
-
-                  <div>
-                    <h3 className="text-base font-semibold">
-                      Recent Payments
-                    </h3>
-
-                    <p className="mt-1 text-xs text-white/30">
-                      Latest payment activity from Razorpay
-                    </p>
+            <section>
+              <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0b0c0e] shadow-[0_16px_50px_rgba(0,0,0,0.28)]">
+                <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4 sm:px-6">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ff1744]/10 text-[#ff1744]">
+                      <CreditCard size={17} />
+                    </div>
+                    <div>
+                      <h2 className="text-sm font-bold text-slate-100">Recent Payments</h2>
+                      <p className="mt-0.5 text-xs text-slate-500">Latest activity from Razorpay</p>
+                    </div>
                   </div>
-
                   <Link
                     href="/dashboard/customers"
-                    className="flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs font-medium text-white/45 transition hover:bg-white/[0.05] hover:text-white"
+                    className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white"
                   >
                     View all
                     <ArrowUpRight size={13} />
                   </Link>
-
                 </div>
 
-                <div className="space-y-1">
+                <div className="px-4 pb-3 pt-2 sm:px-5">
+                  <div className="hidden grid-cols-[minmax(130px,1.3fr)_minmax(80px,0.8fr)_80px_90px_88px_70px_28px] gap-3 rounded-lg bg-[#111317] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-600 md:grid">
+                    <span>Student</span>
+                    <span>Course</span>
+                    <span>Batch</span>
+                    <span>Amount</span>
+                    <span>Status</span>
+                    <span>Time</span>
+                    <span />
+                  </div>
 
-                  {statsLoading && recentPayments.length === 0 ? (
-                    <div className="py-10 text-center text-sm text-white/30">
-                      Loading latest payments...
-                    </div>
-                  ) : recentPayments.length === 0 ? (
-                    <div className="py-10 text-center text-sm text-white/30">
-                      No payments received yet.
-                    </div>
-                  ) : (
-                    recentPayments.map((payment) => {
-                      const status = payment.status.toLowerCase();
-                      const captured =
-                        status === "captured" ||
-                        status === "paid" ||
-                        status === "success" ||
-                        status === "successful";
+                  <div className="divide-y divide-white/[0.05]">
+                    {statsLoading && recentPayments.length === 0 ? (
+                      <div className="py-10 text-center text-sm text-slate-500">Loading latest payments...</div>
+                    ) : recentPayments.length === 0 ? (
+                      <div className="py-10 text-center text-sm text-slate-500">No payments received yet.</div>
+                    ) : (
+                      recentPayments.map((payment) => {
+                        const status = payment.status.toLowerCase();
+                        const captured =
+                          status === "captured" ||
+                          status === "paid" ||
+                          status === "success" ||
+                          status === "successful";
+                        const failed = status === "failed";
 
-                      const failed =
-                        status === "failed";
-
-                      return (
-                        <div
-                          key={payment.id}
-                          className="group flex items-center gap-3 rounded-xl p-3 transition hover:bg-white/[0.025]"
-                        >
+                        return (
                           <div
-                            className={
-                              "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold " +
-                              (captured
-                                ? "bg-emerald-400/10 text-emerald-400"
-                                : failed
-                                  ? "bg-red-400/10 text-red-400"
-                                  : "bg-amber-400/10 text-amber-400")
-                            }
+                            key={payment.id}
+                            className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-3 transition hover:bg-white/[0.025] md:grid-cols-[minmax(130px,1.3fr)_minmax(80px,0.8fr)_80px_90px_88px_70px_28px]"
                           >
-                            ₹
-                          </div>
-
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <p className="truncate text-sm font-medium text-white/85">
-                                {payment.name}
-                              </p>
-
-                              <span
-                                className={
-                                  "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium " +
-                                  (captured
-                                    ? "bg-emerald-400/10 text-emerald-400"
+                            <div className="flex min-w-0 items-center gap-2.5">
+                              <div
+                                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                                  captured
+                                    ? "bg-[#ff1744]/15 text-[#ff6b88]"
                                     : failed
-                                      ? "bg-red-400/10 text-red-400"
-                                      : "bg-amber-400/10 text-amber-400")
-                                }
+                                      ? "bg-red-500/10 text-red-400"
+                                      : "bg-amber-400/10 text-amber-300"
+                                }`}
                               >
-                                {captured
-                                  ? "Captured"
+                                {payment.name
+                                  .split(" ")
+                                  .map((part) => part[0])
+                                  .join("")
+                                  .slice(0, 2)
+                                  .toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-slate-100">{payment.name}</p>
+                                <p className="mt-0.5 truncate text-[10px] text-slate-600">
+                                  {payment.paymentId || "Payment"}
+                                </p>
+                              </div>
+                            </div>
+
+                            <span className="hidden truncate text-xs font-medium text-slate-400 md:block">
+                              {normalizeCourse(payment.course) || "—"}
+                            </span>
+                            <span className="hidden text-xs text-slate-400 md:block">
+                              {getDisplayBatch(payment.course, payment.batch)}
+                            </span>
+                            <span className="text-right text-sm font-bold text-slate-100 md:text-left">
+                              ₹{payment.amount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                            </span>
+                            <span
+                              className={`hidden w-fit rounded-full px-2 py-1 text-[10px] font-bold md:block ${
+                                captured
+                                  ? "bg-emerald-400/10 text-emerald-300"
                                   : failed
-                                    ? "Failed"
-                                    : "Pending"}
-                              </span>
-                            </div>
-
-                            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-white/30">
-                              <span>
-                                {payment.course || "Payment"}
-                              </span>
-
-                              {payment.batch && (
-                                <>
-                                  <span>•</span>
-                                  <span>
-                                    Batch {payment.batch}
-                                  </span>
-                                </>
-                              )}
-
-                              <span>•</span>
-
-                              <span>
-                                {formatRelativeTime(
-                                  payment.paymentTime,
-                                )}
-                              </span>
-                            </div>
+                                    ? "bg-red-400/10 text-red-300"
+                                    : "bg-amber-400/10 text-amber-300"
+                              }`}
+                            >
+                              {captured ? "Captured" : failed ? "Failed" : "Pending"}
+                            </span>
+                            <span className="hidden text-[10px] text-slate-500 md:block">
+                              {formatRelativeTime(payment.paymentTime)}
+                            </span>
+                            <button className="hidden h-7 w-7 items-center justify-center rounded-lg text-slate-600 transition hover:bg-white/[0.05] hover:text-slate-300 md:flex">
+                              <MoreHorizontal size={15} />
+                            </button>
                           </div>
-
-                          <div className="text-right">
-                            <p className="text-sm font-semibold text-white/90">
-                              ₹
-                              {payment.amount.toLocaleString(
-                                "en-IN",
-                                {
-                                  maximumFractionDigits: 0,
-                                },
-                              )}
-                            </p>
-
-                            {payment.paymentId && (
-                              <p className="mt-1 max-w-[105px] truncate text-xs text-white/20">
-                                {payment.paymentId}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
-
               </div>
-
-              {/* QUICK ACTIONS */}
-              <div className="rounded-2xl border border-white/[0.07] bg-[#0b0b0b] p-5 sm:p-6">
-
-                <div className="mb-6">
-
-                  <h3 className="text-sm font-semibold">
-                    Quick Actions
-                  </h3>
-
-                  <p className="mt-1 text-xs text-white/25">
-                    Jump into your workspace
-                  </p>
-
-                </div>
-
-                <div className="space-y-2">
-
-                  <QuickAction
-                    icon={<Workflow size={15} />}
-                    title="Create WhatsApp Flow"
-                    description="Build an automation"
-                    href="/dashboard/whatsapp" accent
-                  />
-
-                  <QuickAction
-                    icon={<Users size={15} />}
-                    title="Add Customer"
-                    description="Add a new customer"
-                  href="/dashboard/customers"/>
-
-                  <QuickAction
-                    icon={<BarChart3 size={15} />}
-                    title="View Analytics"
-                    description="Track performance"
-                  href="/dashboard/analytics"/>
-
-                  <QuickAction
-                    icon={<CircleDollarSign size={15} />}
-                    title="View Revenue"
-                    description="Check your earnings"
-                  href="/dashboard/revenue"/>
-
-                </div>
-
-              </div>
-
             </section>
-
-            {/* FOOTER */}
-            <div className="mt-8 flex items-center justify-between border-t border-white/[0.05] pt-5">
-
-              <p className="text-xs uppercase tracking-[2px] text-white/15">
-                DevilX Flow
-              </p>
-
-              <p className="text-xs text-white/15">
-                Automation made simple.
-              </p>
-
-            </div>
-
           </div>
-
         </main>
-
       </div>
 
-      {/* FLOW LINE ANIMATION */}
       <style jsx global>{`
-        .flow-line {
-          position: absolute;
-          width: 500px;
-          height: 180px;
-          border: 1px solid rgba(255, 23, 68, 0.12);
-          border-left: 0;
-          border-bottom: 0;
-          border-radius: 0 180px 0 0;
-          transform: rotate(-20deg);
-          animation: devilxFlowMove 5s ease-in-out infinite;
-        }
-
-        .flow-line-one {
-          right: -120px;
-          top: 40px;
-        }
-
-        .flow-line-two {
-          right: -180px;
-          top: 90px;
-          opacity: 0.6;
-          animation-delay: 0.7s;
-        }
-
-        .flow-line-three {
-          right: -230px;
-          top: 140px;
-          opacity: 0.35;
-          animation-delay: 1.4s;
-        }
-
-        @keyframes devilxFlowMove {
-          0%,
-          100% {
-            transform: rotate(-20deg) translateX(0);
-            opacity: 0.35;
-          }
-
-          50% {
-            transform: rotate(-20deg) translateX(-35px);
-            opacity: 1;
-          }
-        }
-
-        @media (max-width: 600px) {
-          .flow-line {
-            width: 300px;
-            height: 130px;
-          }
+        .devilx-dashboard,
+        .devilx-dashboard button,
+        .devilx-dashboard a,
+        .devilx-dashboard input,
+        .devilx-dashboard textarea,
+        .devilx-dashboard select {
+          font-family: Arial, Helvetica, sans-serif;
         }
       `}</style>
     </div>
   );
 }
+
+
 
 
 function formatRelativeTime(value: string) {
@@ -932,8 +717,8 @@ function SidebarItem({
       className={
         "group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all " +
         (active
-          ? "bg-[#ff1744] text-white shadow-[0_0_20px_rgba(255,23,68,0.12)]"
-          : "text-white/35 hover:bg-white/[0.04] hover:text-white/80")
+          ? "bg-[#ff1744]/10 text-white ring-1 ring-inset ring-[#ff1744]/25 shadow-[0_8px_25px_rgba(255,23,68,0.08)]"
+          : "text-white hover:bg-white/[0.04] hover:text-white")
       }
     >
       {icon}
@@ -941,50 +726,6 @@ function SidebarItem({
       {active && (
         <span className="ml-auto h-1.5 w-1.5 rounded-full bg-white shadow-[0_0_7px_rgba(255,255,255,0.8)]" />
       )}
-    </Link>
-  );
-}
-
-function QuickAction({
-  icon,
-  title,
-  description,
-  href,
-  accent = false,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  href: string;
-  accent?: boolean;
-}) {
-  return (
-    <Link
-      href={href}
-      className="group flex w-full items-center gap-3 rounded-xl border border-white/[0.05] bg-white/[0.015] p-3 text-left transition hover:border-white/[0.1] hover:bg-white/[0.035]"
-    >
-      <div
-        className={
-          "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg " +
-          (accent
-            ? "bg-[#ff1744]/10 text-[#ff1744]"
-            : "bg-white/[0.04] text-white/50")
-        }
-      >
-        {icon}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-white/75">
-          {title}
-        </p>
-        <p className="mt-0.5 text-xs text-white/25">
-          {description}
-        </p>
-      </div>
-      <ArrowUpRight
-        size={13}
-        className="text-white/15 transition group-hover:translate-x-0.5 group-hover:text-white/50"
-      />
     </Link>
   );
 }

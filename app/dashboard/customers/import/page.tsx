@@ -6,6 +6,8 @@ import {
   CheckCircle2,
   FileSpreadsheet,
   Loader2,
+  Plus,
+  Save,
   Upload,
   X,
   XCircle,
@@ -872,6 +874,35 @@ function displayStatus(
 }
 
 /* -------------------------------------------------------------------------- */
+/* IMPORT ERROR DIAGNOSTICS                                                    */
+/* -------------------------------------------------------------------------- */
+
+function formatImportError(error: unknown) {
+  const value = error as {
+    message?: unknown;
+    code?: unknown;
+    details?: unknown;
+    hint?: unknown;
+  } | null;
+
+  const message = String(value?.message ?? error ?? "Import failed").trim();
+  const code = String(value?.code ?? "").trim();
+  const details = String(value?.details ?? "").trim();
+  const hint = String(value?.hint ?? "").trim();
+
+  const parts = [message];
+  if (code) parts.push(`Code: ${code}`);
+  if (details && details !== message) parts.push(`Details: ${details}`);
+  if (hint) parts.push(`Hint: ${hint}`);
+
+  return parts.join(" • ");
+}
+
+function getImportStepError(step: string, error: unknown) {
+  return `${step} failed — ${formatImportError(error)}`;
+}
+
+/* -------------------------------------------------------------------------- */
 /* CONVERT ROW                                                                 */
 /* -------------------------------------------------------------------------- */
 
@@ -1019,10 +1050,44 @@ export default function ImportCustomersPage() {
     setProcessedRows,
   ] = useState(0);
 
+  const [currentImportRow, setCurrentImportRow] = useState<number | null>(null);
+  const [currentImportStep, setCurrentImportStep] = useState("Waiting");
+  const [fatalImportError, setFatalImportError] = useState("");
+
   const [result, setResult] =
     useState<ImportResult | null>(
       null,
     );
+
+  /*
+   * MANUAL PAYMENT
+   *
+   * Manual payments use the same customers/payments tables as Excel imports.
+   * If a customer already exists, we match by phone, then email, then
+   * name + city. If the payment ID is empty, a unique manual ID is generated.
+   */
+  const [showManualPayment, setShowManualPayment] = useState(false);
+  const [savingManualPayment, setSavingManualPayment] = useState(false);
+  const [manualPaymentError, setManualPaymentError] = useState("");
+  const [manualPaymentSuccess, setManualPaymentSuccess] = useState("");
+  const [manualPayment, setManualPayment] = useState({
+    paymentId: "",
+    name: "",
+    age: "",
+    city: "",
+    phone: "",
+    email: "",
+    course: "",
+    batch: "",
+    amount: "",
+    status: "captured",
+    method: "Manual",
+    time: "",
+    failedReason: "",
+  });
+
+  const [showFailurePopup, setShowFailurePopup] =
+    useState(false);
 
   const [
     detectedColumns,
@@ -1061,12 +1126,16 @@ export default function ImportCustomersPage() {
     setError("");
     setSuccess("");
     setResult(null);
+    setShowFailurePopup(false);
     setRows([]);
     setDraftRows({});
     setEditingIncomplete(false);
     setDetectedColumns([]);
     setProgress(0);
     setProcessedRows(0);
+    setCurrentImportRow(null);
+    setCurrentImportStep("Reading file");
+    setFatalImportError("");
 
     setLoadingFile(true);
     setStage("reading");
@@ -1255,23 +1324,9 @@ export default function ImportCustomersPage() {
               row.amount,
           );
 
-      if (
-        converted.length === 0
-      ) {
-        throw new Error(
-          "No usable payment records were found.",
-        );
-      }
-
       /*
-       * Keep every non-empty Excel row for preview. Required-column
-       * validation is handled separately and keeps the Import button
-       * disabled until all required columns exist.
-       */
-      /*
-       * Failed Reason is optional at file level.
-       * Only show a blank Failed Reason column when a failed record
-       * actually needs a reason.
+       * Failed Reason is NOT a required Excel column.
+       * Add it to the preview only when a failed row needs a reason.
        */
       const failedRowsNeedReason = converted.some(
         (row) => isFailed(row.status) && !row.failedReason.trim(),
@@ -1286,8 +1341,19 @@ export default function ImportCustomersPage() {
         editablePreviewHeaders.push(FIELD_LABELS.failedReason);
       }
 
-      setPreviewHeaders(editablePreviewHeaders);
+      if (
+        converted.length === 0
+      ) {
+        throw new Error(
+          "No usable payment records were found.",
+        );
+      }
 
+      /*
+       * Keep every non-empty Excel row for preview. Required-column
+       * validation is handled separately and keeps the Import button
+       * disabled until all required columns exist.
+       */
       const previewRows = converted.filter((row) =>
         Object.values(row.rawData).some(
           (value) =>
@@ -1381,8 +1447,12 @@ export default function ImportCustomersPage() {
     setError("");
     setSuccess("");
     setResult(null);
+    setShowFailurePopup(false);
     setProgress(0);
     setProcessedRows(0);
+    setCurrentImportRow(null);
+    setCurrentImportStep("Waiting");
+    setFatalImportError("");
     setStage("idle");
     setDetectedColumns([]);
     setMissingRequiredFields([]);
@@ -1391,6 +1461,248 @@ export default function ImportCustomersPage() {
     if (fileInput.current) {
       fileInput.current.value =
         "";
+    }
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* MANUAL PAYMENT                                                          */
+  /* ---------------------------------------------------------------------- */
+
+  function resetManualPayment() {
+    setManualPayment({
+      paymentId: "",
+      name: "",
+      age: "",
+      city: "",
+      phone: "",
+      email: "",
+      course: "",
+      batch: "",
+      amount: "",
+      status: "captured",
+      method: "Manual",
+      time: "",
+      failedReason: "",
+    });
+    setManualPaymentError("");
+    setManualPaymentSuccess("");
+  }
+
+  function openManualPayment() {
+    setManualPaymentError("");
+    setManualPaymentSuccess("");
+    setShowManualPayment(true);
+
+    setManualPayment((current) => ({
+      ...current,
+      time:
+        current.time ||
+        new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Kolkata",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hourCycle: "h23",
+        })
+          .format(new Date())
+          .replace(", ", "T"),
+    }));
+  }
+
+  function closeManualPayment() {
+    if (savingManualPayment) return;
+    setShowManualPayment(false);
+    setManualPaymentError("");
+    setManualPaymentSuccess("");
+  }
+
+  async function saveManualPayment() {
+    setManualPaymentError("");
+    setManualPaymentSuccess("");
+
+    const name = manualPayment.name.trim();
+    const phone = normalizePhone(manualPayment.phone);
+    const email = manualPayment.email.trim();
+    const course = manualPayment.course.trim();
+    const batch = manualPayment.batch.trim();
+    const city = manualPayment.city.trim();
+    const amount = parseAmount(manualPayment.amount);
+    const age =
+      manualPayment.age.trim() === ""
+        ? null
+        : parseAge(manualPayment.age);
+    const status = manualPayment.status.trim().toLowerCase() || "captured";
+    const method = manualPayment.method.trim() || "Manual";
+    const paymentId =
+      manualPayment.paymentId.trim() ||
+      `MANUAL-${Date.now()}`;
+    const paymentTime =
+      manualPayment.time.trim()
+        ? istWallClockToUTC(
+            manualPayment.time.trim().replace("T", " ") +
+              (manualPayment.time.trim().length === 16 ? ":00" : ""),
+          )
+        : null;
+
+    const missing: string[] = [];
+    if (!name) missing.push("Name");
+    if (!phone && !email) missing.push("Phone or Email");
+    if (!course) missing.push("Course");
+    if (!batch) missing.push("Batch");
+    if (!Number.isFinite(amount) || amount <= 0) missing.push("Amount");
+    if (!paymentTime) missing.push("Payment date & time");
+
+    if (isFailed(status) && !manualPayment.failedReason.trim()) {
+      missing.push("Failed Reason");
+    }
+
+    if (missing.length > 0) {
+      setManualPaymentError(
+        `Please complete: ${missing.join(", ")}.`,
+      );
+      return;
+    }
+
+    setSavingManualPayment(true);
+
+    try {
+      const { data: existingCustomers, error: customerLoadError } =
+        await supabase
+          .from("customers")
+          .select(`
+            id,
+            name,
+            age,
+            city,
+            phone,
+            email,
+            course,
+            batch,
+            custom_fields
+          `);
+
+      if (customerLoadError) throw customerLoadError;
+
+      const customerCache = (existingCustomers || []) as Array<{
+        id: string;
+        name: string;
+        age: number | null;
+        city: string | null;
+        phone: string | null;
+        email: string | null;
+        course: string | null;
+        batch: string | null;
+        custom_fields: Record<string, unknown> | null;
+      }>;
+
+      let customer = phone
+        ? customerCache.find(
+            (item) => normalizePhone(item.phone) === phone,
+          )
+        : undefined;
+
+      if (!customer && email) {
+        customer = customerCache.find(
+          (item) =>
+            normalizeValue(item.email) === normalizeValue(email),
+        );
+      }
+
+      if (!customer) {
+        customer = customerCache.find((item) => {
+          const sameName =
+            normalizeValue(item.name) === normalizeValue(name);
+          const sameCity =
+            !city ||
+            !item.city ||
+            normalizeValue(item.city) === normalizeValue(city);
+          return sameName && sameCity;
+        });
+      }
+
+      if (!customer) {
+        const { data: newCustomer, error: createCustomerError } =
+          await supabase
+            .from("customers")
+            .insert({
+              name,
+              age,
+              city: city || null,
+              phone: phone || null,
+              email: email || null,
+              course: course || null,
+              batch: batch || null,
+              custom_fields: {},
+            })
+            .select(`
+              id,
+              name,
+              age,
+              city,
+              phone,
+              email,
+              course,
+              batch,
+              custom_fields
+            `)
+            .single();
+
+        if (createCustomerError) throw createCustomerError;
+        customer = newCustomer;
+      } else {
+        const updateData: Record<string, unknown> = {};
+
+        if (age !== null && customer.age === null) updateData.age = age;
+        if (city && !customer.city) updateData.city = city;
+        if (phone && !customer.phone) updateData.phone = phone;
+        if (email && !customer.email) updateData.email = email;
+        if (course && !customer.course) updateData.course = course;
+        if (batch && !customer.batch) updateData.batch = batch;
+
+        if (Object.keys(updateData).length > 0) {
+          const { error: updateCustomerError } = await supabase
+            .from("customers")
+            .update(updateData)
+            .eq("id", customer.id);
+
+          if (updateCustomerError) throw updateCustomerError;
+        }
+      }
+
+      const { error: paymentError } = await supabase
+        .from("payments")
+        .insert({
+          customer_id: customer.id,
+          payment_id: paymentId,
+          amount,
+          status,
+          method,
+          payment_time: paymentTime,
+          failed_reason:
+            manualPayment.failedReason.trim() || null,
+          course: course || null,
+          batch: batch || null,
+        });
+
+      if (paymentError) throw paymentError;
+
+      setManualPaymentSuccess(
+        `Payment ${paymentId} added successfully.`,
+      );
+
+      setTimeout(() => {
+        setShowManualPayment(false);
+        resetManualPayment();
+      }, 900);
+    } catch (manualError) {
+      console.error("Manual payment error:", manualError);
+      setManualPaymentError(
+        formatImportError(manualError),
+      );
+    } finally {
+      setSavingManualPayment(false);
     }
   }
 
@@ -1553,19 +1865,9 @@ export default function ImportCustomersPage() {
       return;
     }
 
-    const incompleteRows = rows
-      .map((row) => ({ row, missing: getRowMissingFields(row) }))
-      .filter((item) => item.missing.length > 0);
-
-    if (incompleteRows.length > 0) {
-      const first = incompleteRows[0];
-      setError(
-        `Import blocked. ${incompleteRows.length} record(s) still have incomplete data. ` +
-        `Excel row ${first.row.rowNumber} is missing: ${first.missing.join(", ")}. ` +
-        `Please edit the highlighted cells in the preview.`,
-      );
-      return;
-    }
+    // Missing fields are allowed during import.
+    // Each row is imported with whatever data is available; optional/missing
+    // values are stored as null/empty values where the database allows them.
 
     setImporting(true);
     setError("");
@@ -1622,6 +1924,8 @@ export default function ImportCustomersPage() {
 
       for (let index = 0; index < rows.length; index++) {
         const row = rows[index];
+        setCurrentImportRow(row.rowNumber);
+        setCurrentImportStep(`Matching customer for Excel row ${row.rowNumber}`);
 
         try {
           let customer = row.phone
@@ -1650,6 +1954,7 @@ export default function ImportCustomersPage() {
           }
 
           if (!customer) {
+            setCurrentImportStep(`Creating customer for Excel row ${row.rowNumber}`);
             const { data: newCustomer, error: createCustomerError } =
               await supabase
                 .from("customers")
@@ -1668,7 +1973,9 @@ export default function ImportCustomersPage() {
                 `)
                 .single();
 
-            if (createCustomerError) throw createCustomerError;
+            if (createCustomerError) {
+              throw new Error(getImportStepError("Customer creation", createCustomerError));
+            }
             customer = newCustomer;
             customerCache.push(customer);
             importResult.customersCreated++;
@@ -1692,18 +1999,22 @@ export default function ImportCustomersPage() {
             }
 
             if (Object.keys(updateData).length > 0) {
+              setCurrentImportStep(`Updating customer for Excel row ${row.rowNumber}`);
               const { error: updateCustomerError } = await supabase
                 .from("customers")
                 .update(updateData)
                 .eq("id", customer.id);
 
-              if (updateCustomerError) throw updateCustomerError;
+              if (updateCustomerError) {
+                throw new Error(getImportStepError("Customer update", updateCustomerError));
+              }
 
               Object.assign(customer, updateData);
               importResult.customersUpdated++;
             }
           }
 
+          setCurrentImportStep(`Creating payment for Excel row ${row.rowNumber}`);
           const { error: paymentError } = await supabase
             .from("payments")
             .insert({
@@ -1714,18 +2025,26 @@ export default function ImportCustomersPage() {
               method: row.method || null,
               payment_time: istWallClockToUTC(row.time),
               failed_reason: row.failedReason || null,
+
+              // IMPORTANT:
+              // Course and batch belong to THIS payment, not only to the customer.
+              // This prevents a multi-course customer's payments from all
+              // displaying the same course/batch.
+              course: row.course || null,
+              batch: row.batch || null,
             });
 
-          if (paymentError) throw paymentError;
+          if (paymentError) {
+            throw new Error(getImportStepError("Payment creation", paymentError));
+          }
 
           importResult.paymentsCreated++;
           importResult.imported++;
         } catch (rowError) {
           importResult.failed++;
+          const reason = formatImportError(rowError);
           importResult.errors.push(
-            `Excel row ${row.rowNumber} (${row.name || "Unknown"}): ${
-              rowError instanceof Error ? rowError.message : "Import failed"
-            }`,
+            `Excel row ${row.rowNumber} (${row.name || "Unknown"}): ${reason}`,
           );
         }
 
@@ -1740,26 +2059,38 @@ export default function ImportCustomersPage() {
       }
 
       setProcessedRows(rows.length);
+      setCurrentImportRow(null);
+      setCurrentImportStep("Import finished — reviewing results");
       setProgress(100);
       setStage("complete");
       setResult(importResult);
 
-      if (importResult.failed === 0) {
+      if (importResult.failed > 0) {
+        setShowFailurePopup(true);
+      } else {
         setSuccess(
           `Import complete — ${importResult.imported.toLocaleString()} records imported successfully.`,
         );
-      } else {
+
+        // Redirect to Customers after a fully successful import.
+        // The short delay lets the success state render before navigation.
+        setTimeout(() => {
+          router.push("/dashboard/customers");
+        }, 1000);
+      }
+
+      if (importResult.failed > 0) {
         setError(
           `${importResult.failed.toLocaleString()} record(s) failed during import.`,
         );
       }
     } catch (importError) {
       console.error("Import error:", importError);
-      setError(
-        importError instanceof Error
-          ? importError.message
-          : "Unable to import the data.",
-      );
+      const reason = formatImportError(importError);
+      const stopMessage = `Import stopped before all records were processed. ${reason}`;
+      setFatalImportError(stopMessage);
+      setCurrentImportStep("Import stopped");
+      setError(stopMessage);
     } finally {
       setImporting(false);
     }
@@ -1821,27 +2152,38 @@ export default function ImportCustomersPage() {
         </button>
 
 
-        <button
-          className="top-import-button"
-          onClick={() =>
-            fileInput.current?.click()
-          }
-          disabled={
-            loadingFile ||
-            importing
-          }
-        >
-          {loadingFile ? (
-            <Loader2
-              size={16}
-              className="spin"
-            />
-          ) : (
-            <Upload size={16} />
-          )}
+        <div className="top-actions">
+          <button
+            className="top-manual-button"
+            onClick={openManualPayment}
+            disabled={loadingFile || importing || savingManualPayment}
+          >
+            <Plus size={16} />
+            Add Payment
+          </button>
 
-          Import Data
-        </button>
+          <button
+            className="top-import-button"
+            onClick={() =>
+              fileInput.current?.click()
+            }
+            disabled={
+              loadingFile ||
+              importing
+            }
+          >
+            {loadingFile ? (
+              <Loader2
+                size={16}
+                className="spin"
+              />
+            ) : (
+              <Upload size={16} />
+            )}
+
+            Import Data
+          </button>
+        </div>
 
       </div>
 
@@ -2566,10 +2908,7 @@ export default function ImportCustomersPage() {
             onClick={
               importData
             }
-            disabled={
-              importing ||
-              rows.some((row) => getRowMissingFields(row).length > 0)
-            }
+            disabled={importing || rows.length === 0}
           >
 
             {importing ? (
@@ -2619,9 +2958,9 @@ export default function ImportCustomersPage() {
               </h2>
 
               <p>
-                DevilX Flow has finished
-                processing your payment
-                data.
+                {result.failed > 0
+                  ? `DevilX Flow finished processing all ${result.total.toLocaleString()} records. ${result.failed.toLocaleString()} record(s) could not be saved. See the exact reason below.`
+                  : "DevilX Flow has finished processing your payment data successfully."}
               </p>
 
             </div>
@@ -2762,6 +3101,59 @@ export default function ImportCustomersPage() {
           )}
 
 
+          {showFailurePopup && result.failed > 0 && (
+            <div className="failure-modal-backdrop">
+              <div
+                className="failure-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="failure-modal-title"
+              >
+                <button
+                  type="button"
+                  className="failure-modal-close"
+                  onClick={() => setShowFailurePopup(false)}
+                  aria-label="Close failed import details"
+                >
+                  <X size={18} />
+                </button>
+
+                <div className="failure-modal-icon">
+                  <XCircle size={22} />
+                </div>
+
+                <div className="failure-modal-heading">
+                  <h3 id="failure-modal-title">Import completed with failures</h3>
+                  <p>
+                    {result.failed.toLocaleString()} record(s) could not be imported.
+                  </p>
+                </div>
+
+                <div className="failure-modal-summary">
+                  <span>Successful: <strong>{result.imported.toLocaleString()}</strong></span>
+                  <span>Failed: <strong className="red">{result.failed.toLocaleString()}</strong></span>
+                </div>
+
+                <div className="failure-modal-list">
+                  {result.errors.map((item, index) => (
+                    <div className="failure-modal-item" key={`${index}-${item}`}>
+                      <XCircle size={15} />
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  className="failure-modal-button"
+                  onClick={() => setShowFailurePopup(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* FINAL NAVIGATION */}
 
           <div className="result-actions">
@@ -2800,6 +3192,307 @@ export default function ImportCustomersPage() {
         </section>
       )}
 
+
+      {/* ---------------------------------------------------------------- */}
+      {/* MANUAL PAYMENT MODAL                                               */}
+      {/* ---------------------------------------------------------------- */}
+
+      {showManualPayment && (
+        <div
+          className="manual-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeManualPayment();
+            }
+          }}
+        >
+          <section
+            className="manual-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="manual-payment-title"
+          >
+            <div className="manual-modal-header">
+              <div>
+                <span className="manual-modal-eyebrow">
+                  DEVILX FLOW
+                </span>
+                <h2 id="manual-payment-title">
+                  Add manual payment
+                </h2>
+                <p>
+                  Create a customer and payment record without importing an Excel file.
+                </p>
+              </div>
+
+              <button
+                className="manual-close"
+                onClick={closeManualPayment}
+                disabled={savingManualPayment}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {manualPaymentError && (
+              <div className="manual-message manual-error">
+                <XCircle size={16} />
+                <span>{manualPaymentError}</span>
+              </div>
+            )}
+
+            {manualPaymentSuccess && (
+              <div className="manual-message manual-success">
+                <CheckCircle2 size={16} />
+                <span>{manualPaymentSuccess}</span>
+              </div>
+            )}
+
+            <div className="manual-form">
+              <div className="manual-section-label">
+                CUSTOMER DETAILS
+              </div>
+
+              <div className="manual-grid">
+                <label className="manual-field manual-field-wide">
+                  <span>Name <b>*</b></span>
+                  <input
+                    value={manualPayment.name}
+                    onChange={(e) =>
+                      setManualPayment((v) => ({
+                        ...v,
+                        name: e.target.value,
+                      }))
+                    }
+                    placeholder="Customer name"
+                  />
+                </label>
+
+                <label className="manual-field">
+                  <span>Phone</span>
+                  <input
+                    value={manualPayment.phone}
+                    onChange={(e) =>
+                      setManualPayment((v) => ({
+                        ...v,
+                        phone: e.target.value,
+                      }))
+                    }
+                    placeholder="+91 98765 43210"
+                  />
+                </label>
+
+                <label className="manual-field">
+                  <span>Email</span>
+                  <input
+                    type="email"
+                    value={manualPayment.email}
+                    onChange={(e) =>
+                      setManualPayment((v) => ({
+                        ...v,
+                        email: e.target.value,
+                      }))
+                    }
+                    placeholder="customer@email.com"
+                  />
+                </label>
+
+                <label className="manual-field">
+                  <span>Age</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={manualPayment.age}
+                    onChange={(e) =>
+                      setManualPayment((v) => ({
+                        ...v,
+                        age: e.target.value,
+                      }))
+                    }
+                    placeholder="Age"
+                  />
+                </label>
+
+                <label className="manual-field">
+                  <span>City</span>
+                  <input
+                    value={manualPayment.city}
+                    onChange={(e) =>
+                      setManualPayment((v) => ({
+                        ...v,
+                        city: e.target.value,
+                      }))
+                    }
+                    placeholder="City"
+                  />
+                </label>
+
+                <label className="manual-field">
+                  <span>Course <b>*</b></span>
+                  <input
+                    value={manualPayment.course}
+                    onChange={(e) =>
+                      setManualPayment((v) => ({
+                        ...v,
+                        course: e.target.value,
+                      }))
+                    }
+                    placeholder="e.g. Bootcamp"
+                  />
+                </label>
+
+                <label className="manual-field">
+                  <span>Batch <b>*</b></span>
+                  <input
+                    value={manualPayment.batch}
+                    onChange={(e) =>
+                      setManualPayment((v) => ({
+                        ...v,
+                        batch: e.target.value,
+                      }))
+                    }
+                    placeholder="e.g. 05"
+                  />
+                </label>
+              </div>
+
+              <div className="manual-section-label manual-payment-label">
+                PAYMENT DETAILS
+              </div>
+
+              <div className="manual-grid">
+                <label className="manual-field">
+                  <span>Amount (INR) <b>*</b></span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={manualPayment.amount}
+                    onChange={(e) =>
+                      setManualPayment((v) => ({
+                        ...v,
+                        amount: e.target.value,
+                      }))
+                    }
+                    placeholder="5000"
+                  />
+                </label>
+
+                <label className="manual-field">
+                  <span>Payment ID</span>
+                  <input
+                    value={manualPayment.paymentId}
+                    onChange={(e) =>
+                      setManualPayment((v) => ({
+                        ...v,
+                        paymentId: e.target.value,
+                      }))
+                    }
+                    placeholder="Auto-generated if blank"
+                  />
+                </label>
+
+                <label className="manual-field">
+                  <span>Method <b>*</b></span>
+                  <select
+                    value={manualPayment.method}
+                    onChange={(e) =>
+                      setManualPayment((v) => ({
+                        ...v,
+                        method: e.target.value,
+                      }))
+                    }
+                  >
+                    <option value="Manual">Manual</option>
+                    <option value="Cash">Cash</option>
+                    <option value="UPI">UPI</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                    <option value="Card">Card</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </label>
+
+                <label className="manual-field">
+                  <span>Status <b>*</b></span>
+                  <select
+                    value={manualPayment.status}
+                    onChange={(e) =>
+                      setManualPayment((v) => ({
+                        ...v,
+                        status: e.target.value,
+                      }))
+                    }
+                  >
+                    <option value="captured">Captured</option>
+                    <option value="paid">Paid</option>
+                    <option value="pending">Pending</option>
+                    <option value="failed">Failed</option>
+                  </select>
+                </label>
+
+                <label className="manual-field manual-field-wide">
+                  <span>Payment date & time (IST) <b>*</b></span>
+                  <input
+                    type="datetime-local"
+                    value={manualPayment.time}
+                    onChange={(e) =>
+                      setManualPayment((v) => ({
+                        ...v,
+                        time: e.target.value,
+                      }))
+                    }
+                  />
+                </label>
+
+                {isFailed(manualPayment.status) && (
+                  <label className="manual-field manual-field-wide">
+                    <span>Failed reason <b>*</b></span>
+                    <input
+                      value={manualPayment.failedReason}
+                      onChange={(e) =>
+                        setManualPayment((v) => ({
+                          ...v,
+                          failedReason: e.target.value,
+                        }))
+                      }
+                      placeholder="Reason for payment failure"
+                    />
+                  </label>
+                )}
+              </div>
+            </div>
+
+            <div className="manual-modal-footer">
+              <button
+                className="manual-cancel"
+                onClick={closeManualPayment}
+                disabled={savingManualPayment}
+              >
+                Cancel
+              </button>
+
+              <button
+                className="manual-save"
+                onClick={saveManualPayment}
+                disabled={savingManualPayment}
+              >
+                {savingManualPayment ? (
+                  <>
+                    <Loader2 size={16} className="spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save size={16} />
+                    Add Payment
+                  </>
+                )}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* ---------------------------------------------------------------- */}
       {/* STYLES                                                            */}
@@ -2860,6 +3553,42 @@ export default function ImportCustomersPage() {
         .back-button:hover {
           color: #ffffff;
           background: #111112;
+        }
+
+        .top-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .top-manual-button,
+        .top-import-button {
+          height: 38px;
+          padding: 0 14px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+          border-radius: 7px;
+          font-size: 12px;
+          font-weight: 700;
+          transition:
+            transform .16s ease,
+            border-color .16s ease,
+            background .16s ease,
+            opacity .16s ease;
+        }
+
+        .top-manual-button {
+          border: 1px solid #2b2b30;
+          background: #111113;
+          color: #f1f1f3;
+        }
+
+        .top-manual-button:hover:not(:disabled) {
+          border-color: #48484f;
+          background: #18181b;
+          transform: translateY(-1px);
         }
 
         .top-import-button {
@@ -3966,6 +4695,448 @@ export default function ImportCustomersPage() {
           font-size: 9px;
           line-height: 1.4;
         }
+
+        .failure-modal-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 1000;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+          background: rgba(0, 0, 0, .72);
+          backdrop-filter: blur(4px);
+        }
+
+        .failure-modal {
+          position: relative;
+          width: min(680px, 100%);
+          max-height: min(760px, 90vh);
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          padding: 26px;
+          border: 1px solid #2d2d33;
+          border-radius: 14px;
+          background: #111113;
+          box-shadow: 0 24px 80px rgba(0, 0, 0, .55);
+        }
+
+        .failure-modal-close {
+          position: absolute;
+          top: 14px;
+          right: 14px;
+          width: 34px;
+          height: 34px;
+          display: grid;
+          place-items: center;
+          border: 0;
+          border-radius: 7px;
+          background: transparent;
+          color: #a1a1aa;
+          cursor: pointer;
+        }
+
+        .failure-modal-close:hover {
+          background: #1d1d20;
+          color: #fff;
+        }
+
+        .failure-modal-icon {
+          width: 44px;
+          height: 44px;
+          display: grid;
+          place-items: center;
+          margin-bottom: 14px;
+          border-radius: 10px;
+          background: rgba(255, 99, 123, .1);
+          color: #ff637b;
+        }
+
+        .failure-modal-heading h3 {
+          margin: 0;
+          font-size: 19px;
+          line-height: 1.3;
+          color: #f4f4f5;
+        }
+
+        .failure-modal-heading p {
+          margin: 6px 0 0;
+          color: #a1a1aa;
+          font-size: 14px;
+        }
+
+        .failure-modal-summary {
+          display: flex;
+          gap: 22px;
+          margin: 18px 0;
+          padding: 12px 14px;
+          border: 1px solid #27272a;
+          border-radius: 8px;
+          background: #151517;
+          color: #a1a1aa;
+          font-size: 13px;
+        }
+
+        .failure-modal-summary strong {
+          color: #f4f4f5;
+        }
+
+        .failure-modal-list {
+          overflow-y: auto;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          padding-right: 4px;
+        }
+
+        .failure-modal-item {
+          display: flex;
+          gap: 10px;
+          align-items: flex-start;
+          padding: 11px 12px;
+          border: 1px solid #29292d;
+          border-radius: 8px;
+          background: #0d0d0f;
+          color: #d4d4d8;
+          font-size: 13px;
+          line-height: 1.5;
+        }
+
+        .failure-modal-item svg {
+          flex: 0 0 auto;
+          margin-top: 2px;
+          color: #ff637b;
+        }
+
+        .failure-modal-button {
+          align-self: flex-end;
+          margin-top: 18px;
+          padding: 9px 18px;
+          border: 0;
+          border-radius: 7px;
+          background: #f4f4f5;
+          color: #111113;
+          font-size: 13px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .manual-modal-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 1000;
+          display: grid;
+          place-items: center;
+          padding: 24px;
+          background: rgba(0, 0, 0, .76);
+          backdrop-filter: blur(8px);
+        }
+
+        .manual-modal {
+          width: min(760px, 100%);
+          max-height: min(88vh, 820px);
+          overflow: auto;
+          border: 1px solid #29292d;
+          border-radius: 14px;
+          background: #0d0d0f;
+          box-shadow:
+            0 30px 90px rgba(0, 0, 0, .55),
+            0 0 0 1px rgba(255, 23, 68, .035);
+        }
+
+        .manual-modal-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 20px;
+          padding: 22px 22px 18px;
+          border-bottom: 1px solid #222226;
+        }
+
+        .manual-modal-eyebrow {
+          display: block;
+          margin-bottom: 6px;
+          color: #ff1744;
+          font-size: 9px;
+          font-weight: 800;
+          letter-spacing: .16em;
+        }
+
+        .manual-modal-header h2 {
+          margin: 0;
+          color: #f5f5f7;
+          font-size: 20px;
+          line-height: 1.2;
+          font-weight: 750;
+        }
+
+        .manual-modal-header p {
+          margin: 7px 0 0;
+          color: #85858d;
+          font-size: 11px;
+          line-height: 1.5;
+        }
+
+        .manual-close {
+          width: 34px;
+          height: 34px;
+          flex: 0 0 34px;
+          display: grid;
+          place-items: center;
+          border: 1px solid #2a2a2e;
+          border-radius: 7px;
+          background: #111113;
+          color: #8f8f96;
+        }
+
+        .manual-close:hover:not(:disabled) {
+          color: #fff;
+          border-color: #44444b;
+          background: #18181a;
+        }
+
+        .manual-form {
+          padding: 20px 22px 22px;
+        }
+
+        .manual-section-label {
+          margin-bottom: 10px;
+          color: #696970;
+          font-size: 9px;
+          font-weight: 800;
+          letter-spacing: .13em;
+        }
+
+        .manual-payment-label {
+          margin-top: 24px;
+        }
+
+        .manual-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 13px;
+        }
+
+        .manual-field {
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .manual-field-wide {
+          grid-column: 1 / -1;
+        }
+
+        .manual-field span {
+          color: #aaaab1;
+          font-size: 10px;
+          font-weight: 650;
+        }
+
+        .manual-field span b {
+          color: #ff1744;
+          font-weight: 800;
+        }
+
+        .manual-field input,
+        .manual-field select {
+          width: 100%;
+          height: 40px;
+          padding: 0 11px;
+          border: 1px solid #29292e;
+          border-radius: 7px;
+          outline: none;
+          background: #111113;
+          color: #eeeeF0;
+          font-size: 12px;
+          transition:
+            border-color .16s ease,
+            box-shadow .16s ease,
+            background .16s ease;
+        }
+
+        .manual-field input::placeholder {
+          color: #55555c;
+        }
+
+        .manual-field input:focus,
+        .manual-field select:focus {
+          border-color: rgba(255, 23, 68, .65);
+          background: #141416;
+          box-shadow: 0 0 0 3px rgba(255, 23, 68, .08);
+        }
+
+        .manual-field select option {
+          background: #111113;
+          color: #f5f5f5;
+        }
+
+        .manual-message {
+          margin: 16px 22px 0;
+          padding: 10px 12px;
+          display: flex;
+          align-items: flex-start;
+          gap: 8px;
+          border-radius: 8px;
+          font-size: 11px;
+          line-height: 1.45;
+        }
+
+        .manual-error {
+          border: 1px solid rgba(255, 23, 68, .25);
+          background: rgba(255, 23, 68, .06);
+          color: #ff849e;
+        }
+
+        .manual-success {
+          border: 1px solid rgba(32, 211, 112, .22);
+          background: rgba(32, 211, 112, .055);
+          color: #67df9b;
+        }
+
+        .manual-modal-footer {
+          padding: 15px 22px;
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 8px;
+          border-top: 1px solid #222226;
+          background: #0a0a0c;
+        }
+
+        .manual-cancel,
+        .manual-save {
+          height: 38px;
+          padding: 0 14px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+          border-radius: 7px;
+          font-size: 11px;
+          font-weight: 750;
+        }
+
+        .manual-cancel {
+          border: 1px solid #2a2a2e;
+          background: #111113;
+          color: #aaaab1;
+        }
+
+        .manual-cancel:hover:not(:disabled) {
+          color: #fff;
+          background: #18181a;
+          border-color: #424249;
+        }
+
+        .manual-save {
+          border: 1px solid #ff1744;
+          background: #ff1744;
+          color: #fff;
+          box-shadow: 0 7px 22px rgba(255, 23, 68, .13);
+        }
+
+        .manual-save:hover:not(:disabled) {
+          background: #ff3159;
+          border-color: #ff3159;
+          transform: translateY(-1px);
+        }
+
+        .manual-cancel:disabled,
+        .manual-save:disabled,
+        .top-manual-button:disabled,
+        .top-import-button:disabled {
+          cursor: not-allowed;
+          opacity: .55;
+        }
+
+        @media (max-width: 700px) {
+          .top-actions {
+            gap: 6px;
+          }
+
+          .top-manual-button,
+          .top-import-button {
+            padding: 0 10px;
+          }
+
+          .manual-modal-backdrop {
+            padding: 10px;
+          }
+
+          .manual-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .manual-field-wide {
+            grid-column: auto;
+          }
+        }
+
+        .import-diagnostics {
+          max-width: 1450px;
+          margin: 12px auto 0;
+          padding: 14px 16px;
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+          border: 1px solid rgba(255, 174, 0, .22);
+          border-radius: 10px;
+          background: rgba(255, 174, 0, .055);
+        }
+
+        .diagnostic-icon {
+          width: 34px;
+          height: 34px;
+          flex: 0 0 34px;
+          display: grid;
+          place-items: center;
+          border-radius: 8px;
+          background: rgba(255, 174, 0, .09);
+          color: #ffbd45;
+        }
+
+        .diagnostic-copy {
+          min-width: 0;
+          flex: 1;
+        }
+
+        .diagnostic-copy strong {
+          display: block;
+          color: #f1f1f3;
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .diagnostic-copy p {
+          margin: 4px 0 0;
+          color: #a3a3aa;
+          font-size: 11px;
+          line-height: 1.55;
+          overflow-wrap: anywhere;
+        }
+
+        .diagnostic-row {
+          flex: 0 0 auto;
+          padding: 6px 9px;
+          border: 1px solid #35353a;
+          border-radius: 6px;
+          color: #c7c7cc;
+          background: #111112;
+          font-size: 10px;
+          font-weight: 700;
+        }
+
+        .errors-intro {
+          margin: 5px 0 10px;
+          color: #77777f;
+          font-size: 10px;
+          line-height: 1.5;
+        }
+
       `}</style>
 
     </main>

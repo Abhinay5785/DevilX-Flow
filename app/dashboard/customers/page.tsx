@@ -45,11 +45,28 @@ type Payment = {
   payment_time: string;
   failed_reason: string | null;
   created_at: string;
-  course?: string | null;
+  course: string | null;
+  batch: string | null;
 };
 
 type CustomerWithPayments = Customer & {
   payments: Payment[];
+};
+
+type ManualPaymentForm = {
+  name: string;
+  age: string;
+  city: string;
+  phone: string;
+  email: string;
+  course: string;
+  batch: string;
+  amount: string;
+  status: string;
+  payment_time: string;
+  failed_reason: string;
+  payment_id: string;
+  method: string;
 };
 
 type CustomerForm = {
@@ -76,6 +93,27 @@ function normalizeName(value: string) {
     .trim()
     .replace(/\s+/g, " ")
     .toLowerCase();
+}
+
+function normalizeCourse(value: string | null | undefined) {
+  const course = String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (course.toLowerCase() === "consultation") {
+    return "Consultation";
+  }
+
+  return course;
+}
+
+function getDisplayBatch(
+  course: string | null | undefined,
+  batch: string | null | undefined,
+) {
+  return normalizeCourse(course).toLowerCase() === "consultation"
+    ? "No Batch"
+    : String(batch ?? "").trim() || "Not recorded";
 }
 
 function formatCurrency(amount: number) {
@@ -266,6 +304,43 @@ function getLatestPayment(
   )[0];
 }
 
+function getCurrentIstDateTimeLocal() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: INDIA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const values: Record<string, string> = {};
+  parts.forEach((part) => {
+    if (part.type !== "literal") values[part.type] = part.value;
+  });
+
+  return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}`;
+}
+
+function emptyManualPaymentForm(): ManualPaymentForm {
+  return {
+    name: "",
+    age: "",
+    city: "",
+    phone: "",
+    email: "",
+    course: "",
+    batch: "",
+    amount: "",
+    status: "captured",
+    payment_time: getCurrentIstDateTimeLocal(),
+    failed_reason: "",
+    payment_id: "",
+    method: "",
+  };
+}
+
 function emptyForm(): CustomerForm {
   return {
     name: "",
@@ -340,6 +415,18 @@ export default function CustomersPage() {
   const [form, setForm] =
     useState<CustomerForm>(emptyForm());
 
+  const [showManualPaymentModal, setShowManualPaymentModal] =
+    useState(false);
+
+  const [manualPaymentForm, setManualPaymentForm] =
+    useState<ManualPaymentForm>(emptyManualPaymentForm());
+
+  const [manualPaymentSaving, setManualPaymentSaving] =
+    useState(false);
+
+  const [manualPaymentError, setManualPaymentError] =
+    useState("");
+
   /*
    * LOAD CUSTOMERS
    */
@@ -373,7 +460,9 @@ export default function CustomersPage() {
             status,
             payment_time,
             failed_reason,
-            created_at
+            created_at,
+            course,
+            batch
           )
         `,
       )
@@ -464,30 +553,6 @@ export default function CustomersPage() {
     );
   }, [customers]);
 
-  /*
-   * UNIQUE CUSTOMER COUNT
-   *
-   * Same normalized name is counted
-   * as one customer.
-   */
-
-  const uniqueCustomerNames =
-    useMemo(() => {
-      const names = new Set<string>();
-
-      customers.forEach((customer) => {
-        const name = normalizeName(
-          customer.name,
-        );
-
-        if (name) {
-          names.add(name);
-        }
-      });
-
-      return names.size;
-    }, [customers]);
-
   const capturedPayments =
     useMemo(() => {
       return allPayments.filter(
@@ -504,6 +569,35 @@ export default function CustomersPage() {
   }, [allPayments]);
 
   /*
+   * PAYMENT RANKING
+   *
+   * Customer payment count and total paid use only successful/captured
+   * payments. Failed and pending records are not treated as money paid.
+   */
+  const paymentRanking = useMemo(() => {
+    return customers
+      .map((customer) => {
+        const captured = (customer.payments || []).filter((payment) =>
+          isCaptured(payment.status),
+        );
+
+        return {
+          customer,
+          paymentCount: captured.length,
+          totalPaid: captured.reduce(
+            (total, payment) => total + Number(payment.amount || 0),
+            0,
+          ),
+        };
+      })
+      .sort((a, b) =>
+        b.totalPaid - a.totalPaid ||
+        b.paymentCount - a.paymentCount ||
+        a.customer.name.localeCompare(b.customer.name),
+      );
+  }, [customers]);
+
+  /*
    * COURSES
    */
 
@@ -511,17 +605,22 @@ export default function CustomersPage() {
     const values = new Set<string>();
 
     customers.forEach((customer) => {
-      if (customer.course?.trim()) {
-        values.add(
-          customer.course.trim(),
-        );
+      const payments = customer.payments || [];
+
+      payments.forEach((payment) => {
+        if (payment.course?.trim()) {
+          values.add(normalizeCourse(payment.course));
+        }
+      });
+
+      // Legacy fallback: if payment-level course data has not been
+      // recorded yet, keep the customer-level course available.
+      if (payments.every((payment) => !payment.course?.trim()) && customer.course?.trim()) {
+        values.add(normalizeCourse(customer.course));
       }
     });
 
-    return Array.from(values).sort(
-      (a, b) =>
-        a.localeCompare(b),
-    );
+    return Array.from(values).sort((a, b) => a.localeCompare(b));
   }, [customers]);
 
   /*
@@ -539,6 +638,14 @@ export default function CustomersPage() {
             const payments =
               customer.payments || [];
 
+            const paymentCourses = payments
+              .map((payment) => normalizeCourse(payment.course))
+              .filter(Boolean);
+
+            const paymentBatches = payments
+              .map((payment) => payment.batch)
+              .filter(Boolean);
+
             const searchable = [
               customer.name,
               customer.phone,
@@ -546,6 +653,8 @@ export default function CustomersPage() {
               customer.city,
               customer.course,
               customer.batch,
+              ...paymentCourses,
+              ...paymentBatches,
               ...Object.values(customer.custom_fields || {}),
             ]
               .filter(Boolean)
@@ -560,8 +669,9 @@ export default function CustomersPage() {
 
             const matchesCourse =
               courseFilter === "All" ||
-              customer.course ===
-                courseFilter;
+              payments.some((payment) => normalizeCourse(payment.course) === courseFilter) ||
+              (payments.every((payment) => !payment.course?.trim()) &&
+                normalizeCourse(customer.course) === courseFilter);
 
             const matchesStatus =
               statusFilter === "All" ||
@@ -679,6 +789,66 @@ export default function CustomersPage() {
             );
           }
 
+          if (sortBy === "most_payments") {
+            const aCount = (a.payments || []).filter((payment) =>
+              isCaptured(payment.status),
+            ).length;
+            const bCount = (b.payments || []).filter((payment) =>
+              isCaptured(payment.status),
+            ).length;
+
+            return bCount - aCount || a.name.localeCompare(b.name);
+          }
+
+          if (sortBy === "fewest_payments") {
+            const aCount = (a.payments || []).filter((payment) =>
+              isCaptured(payment.status),
+            ).length;
+            const bCount = (b.payments || []).filter((payment) =>
+              isCaptured(payment.status),
+            ).length;
+
+            return aCount - bCount || a.name.localeCompare(b.name);
+          }
+
+          if (sortBy === "highest_total_paid") {
+            const aTotal = (a.payments || []).reduce(
+              (total, payment) =>
+                isCaptured(payment.status)
+                  ? total + Number(payment.amount || 0)
+                  : total,
+              0,
+            );
+            const bTotal = (b.payments || []).reduce(
+              (total, payment) =>
+                isCaptured(payment.status)
+                  ? total + Number(payment.amount || 0)
+                  : total,
+              0,
+            );
+
+            return bTotal - aTotal || a.name.localeCompare(b.name);
+          }
+
+          if (sortBy === "lowest_total_paid") {
+            const aTotal = (a.payments || []).reduce(
+              (total, payment) =>
+                isCaptured(payment.status)
+                  ? total + Number(payment.amount || 0)
+                  : total,
+              0,
+            );
+            const bTotal = (b.payments || []).reduce(
+              (total, payment) =>
+                isCaptured(payment.status)
+                  ? total + Number(payment.amount || 0)
+                  : total,
+              0,
+            );
+
+            return aTotal - bTotal || a.name.localeCompare(b.name);
+          }
+
           return 0;
         },
       );
@@ -761,6 +931,9 @@ export default function CustomersPage() {
       city: customer.city || "",
       phone: customer.phone || "",
       email: customer.email || "",
+      // IMPORTANT: course/batch here are CUSTOMER profile fields.
+      // Never take them from the latest payment because a customer can
+      // have historical payments belonging to different courses/batches.
       course: customer.course || "",
       batch: customer.batch || "",
       custom_fields: Object.fromEntries(
@@ -810,6 +983,12 @@ export default function CustomersPage() {
     setError("");
 
     try {
+      const normalizedFormCourse = normalizeCourse(form.course);
+      const normalizedFormBatch =
+        normalizedFormCourse.toLowerCase() === "consultation"
+          ? ""
+          : form.batch.trim();
+
       const customerPayload = {
         name: form.name.trim(),
         age: form.age
@@ -822,9 +1001,9 @@ export default function CustomersPage() {
         email:
           form.email.trim() || null,
         course:
-          form.course.trim() || null,
+          normalizedFormCourse || null,
         batch:
-          form.batch.trim() || null,
+          normalizedFormBatch || null,
         custom_fields:
           Object.fromEntries(
             (Object.entries(form.custom_fields) as Array<[string, string]>)
@@ -880,6 +1059,9 @@ export default function CustomersPage() {
               failed_reason:
                 form.failed_reason.trim() ||
                 null,
+              // DO NOT update payment.course or payment.batch here.
+              // Payment course/batch are historical transaction data and
+              // must remain exactly as recorded for that payment.
             })
             .eq(
               "id",
@@ -934,6 +1116,8 @@ export default function CustomersPage() {
             failed_reason:
               form.failed_reason.trim() ||
               null,
+            course: normalizedFormCourse || null,
+            batch: normalizedFormBatch || null,
           });
 
         if (paymentError) {
@@ -959,6 +1143,126 @@ export default function CustomersPage() {
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  /*
+   * MANUAL CUSTOMER + PAYMENT
+   *
+   * This flow intentionally collects the customer information manually.
+   * It creates a new customer first and then creates the payment linked to
+   * that customer. The normal Add Customer flow remains unchanged.
+   */
+
+  function openManualPayment() {
+    setManualPaymentForm(emptyManualPaymentForm());
+    setManualPaymentError("");
+    setShowManualPaymentModal(true);
+  }
+
+  function updateManualPaymentForm(
+    key: keyof ManualPaymentForm,
+    value: string,
+  ) {
+    setManualPaymentForm((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  }
+
+  async function saveManualPayment() {
+    if (!manualPaymentForm.name.trim()) {
+      setManualPaymentError("Customer name is required.");
+      return;
+    }
+
+    const amount = Number(manualPaymentForm.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setManualPaymentError("Enter a valid payment amount greater than 0.");
+      return;
+    }
+
+    const normalizedCourse = normalizeCourse(manualPaymentForm.course);
+    if (!normalizedCourse) {
+      setManualPaymentError("Course is required.");
+      return;
+    }
+
+    const paymentTime = manualPaymentForm.payment_time
+      ? istDateTimeLocalToUtc(manualPaymentForm.payment_time)
+      : new Date().toISOString();
+
+    if (!paymentTime) {
+      setManualPaymentError("Please enter a valid payment date and time.");
+      return;
+    }
+
+    if (manualPaymentForm.status === "failed" && !manualPaymentForm.failed_reason.trim()) {
+      setManualPaymentError("Please enter the failed reason for a failed payment.");
+      return;
+    }
+
+    const normalizedBatch =
+      normalizedCourse.toLowerCase() === "consultation"
+        ? ""
+        : manualPaymentForm.batch.trim();
+
+    setManualPaymentSaving(true);
+    setManualPaymentError("");
+
+    try {
+      const customerPayload = {
+        name: manualPaymentForm.name.trim(),
+        age: manualPaymentForm.age ? Number(manualPaymentForm.age) : null,
+        city: manualPaymentForm.city.trim() || null,
+        phone: manualPaymentForm.phone.trim() || null,
+        email: manualPaymentForm.email.trim() || null,
+        course: normalizedCourse || null,
+        batch: normalizedBatch || null,
+        custom_fields: {},
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data: newCustomer, error: customerError } = await supabase
+        .from("customers")
+        .insert(customerPayload)
+        .select("id")
+        .single();
+
+      if (customerError) {
+        throw customerError;
+      }
+
+      const { error: paymentError } = await supabase
+        .from("payments")
+        .insert({
+          customer_id: newCustomer.id,
+          payment_id: manualPaymentForm.payment_id.trim() || null,
+          amount,
+          status: manualPaymentForm.status || "captured",
+          method: manualPaymentForm.method.trim() || null,
+          payment_time: paymentTime,
+          failed_reason: manualPaymentForm.failed_reason.trim() || null,
+          course: normalizedCourse,
+          batch: normalizedBatch || null,
+        });
+
+      if (paymentError) {
+        throw paymentError;
+      }
+
+      setShowManualPaymentModal(false);
+      setManualPaymentForm(emptyManualPaymentForm());
+      await loadCustomers();
+    } catch (saveError) {
+      console.error("Manual customer/payment error:", saveError);
+      setManualPaymentError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Unable to add customer and payment.",
+      );
+    } finally {
+      setManualPaymentSaving(false);
     }
   }
 
@@ -1044,7 +1348,19 @@ export default function CustomersPage() {
 
       <header className="page-header">
 
-        <div>
+        <div className="header-title-row">
+          <button
+            type="button"
+            className="back-button"
+            onClick={() => router.push("/dashboard")}
+            aria-label="Back to dashboard"
+            title="Back to Dashboard"
+          >
+            <ChevronLeft size={16} />
+            <span>Dashboard</span>
+          </button>
+
+          <div className="header-copy">
           <span className="eyebrow">
             DEVILX FLOW
           </span>
@@ -1057,6 +1373,7 @@ export default function CustomersPage() {
             Manage your customers and
             payment records.
           </p>
+          </div>
         </div>
 
 
@@ -1077,6 +1394,14 @@ export default function CustomersPage() {
             Import Excel
           </button>
 
+
+          <button
+            className="secondary-button manual-payment-button"
+            onClick={openManualPayment}
+          >
+            <Plus size={18} />
+            Add Payment
+          </button>
 
           <button
             className="primary-button"
@@ -1136,11 +1461,11 @@ export default function CustomersPage() {
           </div>
 
           <strong>
-            {uniqueCustomerNames.toLocaleString()}
+            {customers.length.toLocaleString()}
           </strong>
 
           <p>
-            Unique customers
+            Total customers
           </p>
 
         </div>
@@ -1241,8 +1566,18 @@ export default function CustomersPage() {
 
             <p>
               {filteredCustomers.length.toLocaleString()}{" "}
-              customers
+              customers · successful payments only for payment ranking
             </p>
+
+            {paymentRanking.length > 0 && (
+              <div className="payment-ranking-summary">
+                <span>Top payer</span>
+                <strong>{paymentRanking[0].customer.name}</strong>
+                <span>{formatCurrency(paymentRanking[0].totalPaid)}</span>
+                <span>·</span>
+                <span>{paymentRanking[0].paymentCount} payments</span>
+              </div>
+            )}
 
           </div>
 
@@ -1414,6 +1749,22 @@ export default function CustomersPage() {
                   Z → A
                 </option>
 
+                <option value="most_payments">
+                  Most payments
+                </option>
+
+                <option value="fewest_payments">
+                  Fewest payments
+                </option>
+
+                <option value="highest_total_paid">
+                  Highest total paid
+                </option>
+
+                <option value="lowest_total_paid">
+                  Lowest total paid
+                </option>
+
               </select>
 
             </div>
@@ -1544,19 +1895,19 @@ export default function CustomersPage() {
                       customer.payments ||
                       [];
 
-                    const totalPaid =
-                      payments.reduce(
-                        (
-                          total,
-                          payment,
-                        ) =>
-                          total +
-                          Number(
-                            payment.amount ||
-                              0,
-                          ),
-                        0,
-                      );
+                    // Payment count and total paid represent only successful/captured payments.
+                    // Failed and pending records are intentionally excluded.
+                    const capturedCustomerPayments = payments.filter((payment) =>
+                      isCaptured(payment.status),
+                    );
+
+                    const paymentCount = capturedCustomerPayments.length;
+
+                    const totalPaid = capturedCustomerPayments.reduce(
+                      (total, payment) =>
+                        total + Number(payment.amount || 0),
+                      0,
+                    );
 
                     const latest =
                       getLatestPayment(
@@ -1627,12 +1978,39 @@ export default function CustomersPage() {
 
 
                         <td>
-                          {customer.course ||
-                            "—"}
+                          {Array.from(
+                            new Set(
+                              payments
+                                .map((payment) => normalizeCourse(payment.course))
+                                .filter(Boolean),
+                            ),
+                          ).length > 0
+                            ? Array.from(
+                                new Set(
+                                  payments
+                                    .map((payment) => normalizeCourse(payment.course))
+                                    .filter(Boolean),
+                                ),
+                              ).join(", ")
+                            : normalizeCourse(customer.course) || "—"}
                         </td>
 
                         <td>
-                          {customer.batch || "—"}
+                          {Array.from(
+                            new Set(
+                              payments
+                                .map((payment) => getDisplayBatch(payment.course, payment.batch))
+                                .filter(Boolean),
+                            ),
+                          ).length > 0
+                            ? Array.from(
+                                new Set(
+                                  payments
+                                    .map((payment) => getDisplayBatch(payment.course, payment.batch))
+                                    .filter(Boolean),
+                                ),
+                              ).join(", ")
+                            : customer.batch || "—"}
                         </td>
 
 
@@ -1640,7 +2018,7 @@ export default function CustomersPage() {
 
                           <span className="payment-number">
                             {
-                              payments.length
+                              paymentCount
                             }
                           </span>
 
@@ -1868,6 +2246,200 @@ export default function CustomersPage() {
       </section>
 
 
+      {/* MANUAL CUSTOMER + PAYMENT MODAL */}
+
+      {showManualPaymentModal && (
+        <div className="modal-background">
+          <div className="manual-payment-modal">
+            <div className="modal-header">
+              <div>
+                <span>MANUAL ENTRY</span>
+                <h2>Add customer & payment</h2>
+                <p>
+                  Enter the customer details and payment details manually. A new customer and payment record will be created together.
+                </p>
+              </div>
+
+              <button
+                className="close"
+                onClick={() => setShowManualPaymentModal(false)}
+                aria-label="Close manual entry"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="form-grid">
+              <div className="form-section full">
+                Customer details
+              </div>
+
+              <div className="form-field full">
+                <label>Full name *</label>
+                <input
+                  value={manualPaymentForm.name}
+                  onChange={(event) => updateManualPaymentForm("name", event.target.value)}
+                  placeholder="Rahul Sharma"
+                  autoFocus
+                />
+              </div>
+
+              <div className="form-field">
+                <label>Age</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={manualPaymentForm.age}
+                  onChange={(event) => updateManualPaymentForm("age", event.target.value)}
+                  placeholder="28"
+                />
+              </div>
+
+              <div className="form-field">
+                <label>City</label>
+                <input
+                  value={manualPaymentForm.city}
+                  onChange={(event) => updateManualPaymentForm("city", event.target.value)}
+                  placeholder="Hyderabad"
+                />
+              </div>
+
+              <div className="form-field">
+                <label>Phone</label>
+                <input
+                  value={manualPaymentForm.phone}
+                  onChange={(event) => updateManualPaymentForm("phone", event.target.value)}
+                  placeholder="+91 98765 43210"
+                />
+              </div>
+
+              <div className="form-field">
+                <label>Email</label>
+                <input
+                  type="email"
+                  value={manualPaymentForm.email}
+                  onChange={(event) => updateManualPaymentForm("email", event.target.value)}
+                  placeholder="rahul@email.com"
+                />
+              </div>
+
+              <div className="form-section full">
+                Course details
+              </div>
+
+              <div className="form-field">
+                <label>Course *</label>
+                <input
+                  value={manualPaymentForm.course}
+                  onChange={(event) => updateManualPaymentForm("course", event.target.value)}
+                  placeholder="Bootcamp"
+                />
+              </div>
+
+              <div className="form-field">
+                <label>Batch</label>
+                <input
+                  value={manualPaymentForm.batch}
+                  onChange={(event) => updateManualPaymentForm("batch", event.target.value)}
+                  disabled={normalizeCourse(manualPaymentForm.course).toLowerCase() === "consultation"}
+                  placeholder="05"
+                />
+              </div>
+
+              <div className="form-section full">
+                Payment details
+              </div>
+
+              <div className="form-field">
+                <label>Amount (₹) *</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={manualPaymentForm.amount}
+                  onChange={(event) => updateManualPaymentForm("amount", event.target.value)}
+                  placeholder="5000"
+                />
+              </div>
+
+              <div className="form-field">
+                <label>Status</label>
+                <select
+                  value={manualPaymentForm.status}
+                  onChange={(event) => updateManualPaymentForm("status", event.target.value)}
+                >
+                  <option value="captured">Captured</option>
+                  <option value="failed">Failed</option>
+                  <option value="pending">Pending</option>
+                </select>
+              </div>
+
+              <div className="form-field">
+                <label>Payment method</label>
+                <input
+                  value={manualPaymentForm.method}
+                  onChange={(event) => updateManualPaymentForm("method", event.target.value)}
+                  placeholder="UPI / Cash / Card / Bank Transfer"
+                />
+              </div>
+
+              <div className="form-field">
+                <label>Payment ID</label>
+                <input
+                  value={manualPaymentForm.payment_id}
+                  onChange={(event) => updateManualPaymentForm("payment_id", event.target.value)}
+                  placeholder="Optional transaction ID"
+                />
+              </div>
+
+              <div className="form-field">
+                <label>Payment date & time (IST)</label>
+                <input
+                  type="datetime-local"
+                  value={manualPaymentForm.payment_time}
+                  onChange={(event) => updateManualPaymentForm("payment_time", event.target.value)}
+                />
+              </div>
+
+              <div className="form-field">
+                <label>Failed reason</label>
+                <input
+                  value={manualPaymentForm.failed_reason}
+                  onChange={(event) => updateManualPaymentForm("failed_reason", event.target.value)}
+                  placeholder={manualPaymentForm.status === "failed" ? "Required for failed payment" : "Optional"}
+                />
+              </div>
+            </div>
+
+            {manualPaymentError && (
+              <div className="form-error">
+                <XCircle size={16} />
+                {manualPaymentError}
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button
+                className="cancel"
+                onClick={() => setShowManualPaymentModal(false)}
+                disabled={manualPaymentSaving}
+              >
+                Cancel
+              </button>
+
+              <button
+                className="primary-button"
+                disabled={manualPaymentSaving}
+                onClick={saveManualPayment}
+              >
+                <Plus size={16} />
+                {manualPaymentSaving ? "Saving..." : "Add customer & payment"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ADD / EDIT MODAL */}
 
       {showCustomerModal && (
@@ -2021,7 +2593,7 @@ export default function CustomersPage() {
               <div className="form-field full">
 
                 <label>
-                  Course
+                  Customer Course
                 </label>
 
                 <input
@@ -2039,7 +2611,7 @@ export default function CustomersPage() {
 
 
               <div className="form-field full">
-                <label>Batch</label>
+                <label>Customer Batch</label>
                 <input
                   value={form.batch}
                   onChange={(event) => updateForm("batch", event.target.value)}
@@ -2047,8 +2619,17 @@ export default function CustomersPage() {
                 />
               </div>
 
+              <p style={{
+                margin: "-6px 0 8px",
+                color: "#8f8f8f",
+                fontSize: "11px",
+                lineHeight: 1.5,
+              }}>
+                Customer course/batch describe the current profile. Historical payment course/batch are never changed when you edit this customer.
+              </p>
+
               <div className="form-section">
-                Latest payment
+                Latest payment (editable transaction details)
               </div>
 
 
@@ -2306,25 +2887,44 @@ export default function CustomersPage() {
 
 
                 <div>
-                  <span>
-                    Course
-                  </span>
-
+                  <span>Courses</span>
                   <strong>
-                    {
-                      selectedCustomer.course ||
-                      "—"
-                    }
+                    {Array.from(
+                      new Set(
+                        selectedCustomer.payments
+                          .map((payment) => normalizeCourse(payment.course))
+                          .filter(Boolean),
+                      ),
+                    ).length > 0
+                      ? Array.from(
+                          new Set(
+                            selectedCustomer.payments
+                              .map((payment) => normalizeCourse(payment.course))
+                              .filter(Boolean),
+                          ),
+                        ).join(", ")
+                      : normalizeCourse(selectedCustomer.course) || "—"}
                   </strong>
                 </div>
 
-
                 <div>
-                  <span>
-                    Batch
-                  </span>
+                  <span>Batches</span>
                   <strong>
-                    {selectedCustomer.batch || "—"}
+                    {Array.from(
+                      new Set(
+                        selectedCustomer.payments
+                          .map((payment) => getDisplayBatch(payment.course, payment.batch))
+                          .filter(Boolean),
+                      ),
+                    ).length > 0
+                      ? Array.from(
+                          new Set(
+                            selectedCustomer.payments
+                              .map((payment) => getDisplayBatch(payment.course, payment.batch))
+                              .filter(Boolean),
+                          ),
+                        ).join(", ")
+                      : (normalizeCourse(selectedCustomer.course).toLowerCase() === "consultation" ? "No Batch" : selectedCustomer.batch || "—")}
                   </strong>
                 </div>
 
@@ -2459,10 +3059,17 @@ export default function CustomersPage() {
                               </span>
 
                               <strong>
-                                {
-                                  selectedCustomer.course ||
-                                  "—"
-                                }
+                                {normalizeCourse(payment.course) || "Not recorded"}
+                              </strong>
+
+                              <i />
+
+                              <span>
+                                Batch
+                              </span>
+
+                              <strong>
+                                {getDisplayBatch(payment.course, payment.batch)}
                               </strong>
 
                               <i />
@@ -2536,8 +3143,11 @@ export default function CustomersPage() {
 
         .customers-page {
           min-height: 100vh;
-          padding: 40px 44px 70px;
-          background: #050505;
+          padding: 36px 44px 70px;
+          background:
+            radial-gradient(circle at 12% 0%, rgba(255,23,68,.055), transparent 28%),
+            radial-gradient(circle at 92% 8%, rgba(139,92,246,.035), transparent 24%),
+            #050505;
           color: #f5f5f5;
           font-family:
             Inter,
@@ -2561,6 +3171,56 @@ export default function CustomersPage() {
 
         button {
           cursor: pointer;
+        }
+
+        .header-title-row {
+          min-width: 0;
+          display: flex;
+          align-items: center;
+          gap: 18px;
+        }
+
+        .header-copy {
+          min-width: 0;
+        }
+
+        .back-button {
+          width: 40px;
+          height: 40px;
+          padding: 0;
+          flex: 0 0 40px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0;
+          border: 1px solid rgba(255,255,255,.08);
+          border-radius: 10px;
+          background: rgba(255,255,255,.035);
+          color: #a1a1aa;
+          font-size: 12px;
+          font-weight: 600;
+          box-shadow: 0 4px 18px rgba(0,0,0,.18);
+          transition:
+            transform .18s ease,
+            border-color .18s ease,
+            background .18s ease,
+            color .18s ease;
+        }
+
+        .back-button span {
+          display: none;
+        }
+
+        .back-button:hover {
+          transform: translateX(-2px);
+          border-color: rgba(255,23,68,.35);
+          background: rgba(255,23,68,.07);
+          color: #ffffff;
+        }
+
+        .back-button:focus-visible {
+          outline: 2px solid rgba(255,23,68,.45);
+          outline-offset: 3px;
         }
 
         .page-header {
@@ -2671,9 +3331,17 @@ export default function CustomersPage() {
         .stat-card {
           min-height: 145px;
           padding: 20px;
-          border: 1px solid #202023;
-          border-radius: 11px;
-          background: #0c0c0d;
+          border: 1px solid rgba(255,255,255,.07);
+          border-radius: 14px;
+          background: rgba(15,15,17,.82);
+          box-shadow: 0 10px 30px rgba(0,0,0,.16);
+          transition: transform .18s ease, border-color .18s ease, background .18s ease;
+        }
+
+        .stat-card:hover {
+          transform: translateY(-2px);
+          border-color: rgba(255,255,255,.11);
+          background: rgba(18,18,20,.92);
         }
 
         .stat-top {
@@ -2753,6 +3421,24 @@ export default function CustomersPage() {
           margin: 5px 0 0;
           color: #8b8b93;
           font-size: 12px;
+        }
+
+        .payment-ranking-summary {
+          margin-top: 8px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          color: #71717a;
+          font-size: 11px;
+        }
+
+        .payment-ranking-summary strong {
+          color: #e4e4e7;
+          font-weight: 600;
+        }
+
+        .payment-ranking-summary span:nth-last-child(3) {
+          color: #39d98a;
         }
 
         .toolbar-actions {
@@ -3127,7 +3813,8 @@ export default function CustomersPage() {
         }
 
         .customer-modal,
-        .details-modal {
+        .details-modal,
+        .manual-payment-modal {
           width: min(720px,100%);
           max-height: calc(100vh - 40px);
           overflow: auto;
@@ -3141,6 +3828,61 @@ export default function CustomersPage() {
 
         .details-modal {
           width: min(720px,100%);
+        }
+
+        .manual-payment-modal {
+          width: min(760px,100%);
+        }
+
+        .manual-payment-button {
+          border-color: #343438;
+        }
+
+        .manual-payment-customer-card {
+          grid-column: 1 / -1;
+          display: flex;
+          align-items: center;
+          gap: 11px;
+          padding: 12px;
+          border: 1px solid rgba(255,23,68,.18);
+          border-radius: 9px;
+          background: rgba(255,23,68,.045);
+        }
+
+        .manual-payment-customer-avatar {
+          width: 36px;
+          height: 36px;
+          flex: 0 0 36px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 9px;
+          background: rgba(255,23,68,.12);
+          color: #ff5b78;
+          font-size: 14px;
+          font-weight: 700;
+        }
+
+        .manual-payment-customer-card strong,
+        .manual-payment-customer-card span {
+          display: block;
+        }
+
+        .manual-payment-customer-card strong {
+          color: #ffffff;
+          font-size: 13px;
+          font-weight: 650;
+        }
+
+        .manual-payment-customer-card span {
+          margin-top: 3px;
+          color: #85858d;
+          font-size: 11px;
+        }
+
+        .form-field input:disabled {
+          opacity: .45;
+          cursor: not-allowed;
         }
 
         .modal-header {
