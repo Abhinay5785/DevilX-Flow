@@ -79,6 +79,20 @@ export default function DashboardPage() {
   const [recentPayments, setRecentPayments] =
     useState<RecentPayment[]>([]);
 
+  // Render the date only after hydration so the server and browser
+  // cannot disagree when the request crosses midnight/timezones.
+  const [todayLabel, setTodayLabel] = useState("");
+
+  useEffect(() => {
+    setTodayLabel(
+      new Date().toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      }),
+    );
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -488,11 +502,7 @@ export default function DashboardPage() {
                 <div>
                   <p className="text-xs font-semibold text-slate-200">Today</p>
                   <p className="text-[10px] text-slate-500">
-                    {new Date().toLocaleDateString("en-IN", {
-                      day: "2-digit",
-                      month: "long",
-                      year: "numeric",
-                    })}
+                    {todayLabel || "Loading date..."}
                   </p>
                 </div>
               </div>

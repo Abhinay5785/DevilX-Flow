@@ -8,6 +8,13 @@ import {
   Edit3,
   Layers3,
   Loader2,
+  MessageCircle,
+  Link2,
+  Copy,
+  ExternalLink,
+  Send,
+  Plus,
+  Trash2,
   Save,
   Search,
   ToggleLeft,
@@ -36,6 +43,8 @@ type Batch = {
   end_date?: string | null;
   created_at: string;
   updated_at: string;
+  whatsapp_community_url?: string | null;
+  whatsapp_join_token?: string | null;
 };
 
 type StudentPayment = {
@@ -64,6 +73,34 @@ type Student = {
   payments: StudentPayment[];
 };
 
+type WhatsAppVariable = {
+  id: string;
+  key: string;
+  source: string;
+  customValue: string;
+};
+
+const WHATSAPP_VARIABLE_LABELS: Record<string, string> = {
+  name: "Student Name",
+  phone: "Phone",
+  email: "Email",
+  city: "City",
+  course: "Course",
+  batch: "Batch",
+  paid: "Total Paid",
+  balance: "Remaining Balance",
+  full_amount: "Full Amount",
+  payment_status: "Payment Status",
+  payment_id: "Latest Payment ID",
+  payment_date: "Latest Payment Date",
+};
+
+const generateJoinToken = () => {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(36).padStart(2, "0")).join("").slice(0, 10);
+};
+
 const money = (value: number) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -90,6 +127,13 @@ export default function BatchDetailsPage() {
   const [studentSearch, setStudentSearch] = useState("");
   const [paymentFilter, setPaymentFilter] = useState<"all" | "full" | "advance_balance" | "advance_only" | "balance_only" | "other" | "no_payment">("all");
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [whatsappOpen, setWhatsappOpen] = useState(false);
+  const [whatsappSending, setWhatsappSending] = useState(false);
+  const [whatsappTemplateName, setWhatsappTemplateName] = useState("");
+  const [whatsappLanguageCode, setWhatsappLanguageCode] = useState("en_US");
+  const [whatsappVariables, setWhatsappVariables] = useState<WhatsAppVariable[]>([]);
+  const [whatsappResult, setWhatsappResult] = useState<{ sent: number; failed: number; skipped: number } | null>(null);
+  const [whatsappError, setWhatsappError] = useState("");
 
   const [name, setName] = useState("");
   const [advance, setAdvance] = useState("");
@@ -97,6 +141,9 @@ export default function BatchDetailsPage() {
   const [full, setFull] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [whatsappCommunityUrl, setWhatsappCommunityUrl] = useState("");
+  const [whatsappJoinToken, setWhatsappJoinToken] = useState("");
+  const [copyingJoinLink, setCopyingJoinLink] = useState(false);
 
   const getPaymentKind = (
     payment: StudentPayment,
@@ -306,7 +353,7 @@ export default function BatchDetailsPage() {
         supabase
           .from("course_batches")
           .select(
-            "id,course_id,name,advance_amount,balance_amount,full_amount,status,start_date,end_date,created_at,updated_at",
+            "id,course_id,name,advance_amount,balance_amount,full_amount,status,start_date,end_date,created_at,updated_at,whatsapp_community_url,whatsapp_join_token",
           )
           .eq("id", batchId)
           .eq("course_id", courseId)
@@ -329,6 +376,8 @@ export default function BatchDetailsPage() {
     setFull(String(batchData.full_amount));
     setStartDate(batchData.start_date || "");
     setEndDate(batchData.end_date || "");
+    setWhatsappCommunityUrl(batchData.whatsapp_community_url || "");
+    setWhatsappJoinToken(batchData.whatsapp_join_token || "");
     await loadStudents(courseData.name, batchData.name, batchData);
     setLoading(false);
   };
@@ -443,6 +492,8 @@ export default function BatchDetailsPage() {
         full_amount: fullValue,
         start_date: startDate || null,
         end_date: endDate || null,
+        whatsapp_community_url: whatsappCommunityUrl.trim() || null,
+        whatsapp_join_token: whatsappJoinToken.trim() || generateJoinToken(),
         updated_at: new Date().toISOString(),
       })
       .eq("id", batchId)
@@ -463,6 +514,8 @@ export default function BatchDetailsPage() {
     setFull(String(data.full_amount));
     setStartDate(data.start_date || "");
     setEndDate(data.end_date || "");
+    setWhatsappCommunityUrl(data.whatsapp_community_url || "");
+    setWhatsappJoinToken(data.whatsapp_join_token || "");
     setEditing(false);
     await loadStudents(course?.name, data.name, data);
     setMessage("Batch configuration saved.");
@@ -506,6 +559,8 @@ export default function BatchDetailsPage() {
     setFull(String(batch.full_amount));
     setStartDate(batch.start_date || "");
     setEndDate(batch.end_date || "");
+    setWhatsappCommunityUrl(batch.whatsapp_community_url || "");
+    setWhatsappJoinToken(batch.whatsapp_join_token || "");
     setEditing(false);
     setMessage("");
   };
@@ -599,6 +654,165 @@ export default function BatchDetailsPage() {
     return counts;
   }, [searchedStudents]);
 
+  const filteredStudents = useMemo(() => {
+    const query = studentSearch.trim().toLowerCase();
+
+    return students.filter((student) => {
+      const matchesSearch =
+        !query ||
+        [student.name, student.phone, student.email, student.city, student.paymentStatus]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(query));
+
+      const matchesFilter =
+        paymentFilter === "all" ||
+        (paymentFilter === "full" && student.paymentStatus === "Full Payment") ||
+        (paymentFilter === "advance_balance" && student.paymentStatus === "Advance + Balance") ||
+        (paymentFilter === "advance_only" && student.paymentStatus === "Advance Only") ||
+        (paymentFilter === "balance_only" && student.paymentStatus === "Balance Only") ||
+        (paymentFilter === "other" && student.paymentStatus === "Partial / Other") ||
+        (paymentFilter === "no_payment" && student.paymentStatus === "No Payment");
+
+      return matchesSearch && matchesFilter;
+    });
+  }, [students, studentSearch, paymentFilter]);
+
+  const getWhatsAppVariableValue = (student: Student, variable: WhatsAppVariable) => {
+    if (variable.source === "custom") return variable.customValue;
+
+    const latestPayment = student.payments[0];
+
+    switch (variable.source) {
+      case "name": return student.name;
+      case "phone": return student.phone || "";
+      case "email": return student.email || "";
+      case "city": return student.city || "";
+      case "course": return course?.name || "";
+      case "batch": return batch?.name || "";
+      case "paid": return money(student.totalPaid);
+      case "balance": return money(Math.max(0, (batch?.full_amount || 0) - student.totalPaid));
+      case "full_amount": return money(batch?.full_amount || 0);
+      case "payment_status": return student.paymentStatus;
+      case "payment_id": return latestPayment?.payment_id || "";
+      case "payment_date":
+        return latestPayment?.payment_time
+          ? new Date(latestPayment.payment_time).toLocaleString("en-IN", {
+              day: "2-digit", month: "2-digit", year: "numeric",
+              hour: "2-digit", minute: "2-digit",
+            })
+          : "";
+      default: return "";
+    }
+  };
+
+  const devilxJoinLink =
+    whatsappJoinToken && typeof window !== "undefined"
+      ? `${window.location.origin}/join/${whatsappJoinToken}`
+      : "";
+
+  const copyJoinLink = async () => {
+    if (!devilxJoinLink) return;
+
+    try {
+      await navigator.clipboard.writeText(devilxJoinLink);
+      setCopyingJoinLink(true);
+      window.setTimeout(() => setCopyingJoinLink(false), 1400);
+    } catch {
+      setMessage("Could not copy the DevilX join link.");
+    }
+  };
+
+  const openWhatsApp = () => {
+    setWhatsappError("");
+    setWhatsappResult(null);
+    setWhatsappOpen(true);
+  };
+
+  const addWhatsAppVariable = () => {
+    setWhatsappVariables((current) => [
+      ...current,
+      {
+        id: `${Date.now()}-${current.length}`,
+        key: String(current.length + 1),
+        source: "custom",
+        customValue: "",
+      },
+    ]);
+  };
+
+  const updateWhatsAppVariable = (index: number, patch: Partial<WhatsAppVariable>) => {
+    setWhatsappVariables((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...patch } : item,
+      ),
+    );
+  };
+
+  const removeWhatsAppVariable = (index: number) => {
+    setWhatsappVariables((current) => current.filter((_, itemIndex) => itemIndex !== index));
+  };
+
+  const sendWhatsAppMessages = async () => {
+    const templateName = whatsappTemplateName.trim();
+    const languageCode = whatsappLanguageCode.trim() || "en_US";
+    const recipients = filteredStudents.filter((student) => student.phone?.trim());
+
+    if (!templateName) {
+      setWhatsappError("Enter the approved WhatsApp template name.");
+      return;
+    }
+
+    if (recipients.length === 0) {
+      setWhatsappError("No filtered students have a phone number.");
+      return;
+    }
+
+    if (whatsappVariables.some((variable) => !variable.key.trim())) {
+      setWhatsappError("Every variable must have a variable name or number.");
+      return;
+    }
+
+    if (whatsappVariables.some((variable) => variable.source === "custom" && !variable.customValue.trim())) {
+      setWhatsappError("Enter a value for every manual variable.");
+      return;
+    }
+
+    setWhatsappSending(true);
+    setWhatsappError("");
+    setWhatsappResult(null);
+
+    try {
+      const response = await fetch("/api/whatsapp/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          templateName,
+          languageCode,
+          recipients: recipients.map((student) => ({
+            id: student.id,
+            phone: student.phone,
+            variables: whatsappVariables.map((variable) =>
+              getWhatsAppVariableValue(student, variable),
+            ),
+          })),
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "WhatsApp sending failed.");
+
+      setWhatsappResult({
+        sent: Number(result.sent || 0),
+        failed: Number(result.failed || 0),
+        skipped: filteredStudents.length - recipients.length,
+      });
+    } catch (error) {
+      setWhatsappError(error instanceof Error ? error.message : "WhatsApp sending failed.");
+    } finally {
+      setWhatsappSending(false);
+    }
+  };
+
   if (loading) {
     return (
       <main className="page-shell">
@@ -636,13 +850,23 @@ export default function BatchDetailsPage() {
   return (
     <main className="page-shell">
       <div className="topbar">
-        <button
-          className="back-button"
-          onClick={() => router.push(`/dashboard/courses/${course.id}`)}
-        >
-          <ArrowLeft size={16} />
-          Back to {course.name}
-        </button>
+        <div className="topbar-left">
+          <button
+            className="back-button"
+            onClick={() => router.push(`/dashboard/courses/${course.id}`)}
+          >
+            <ArrowLeft size={16} />
+            Courses
+          </button>
+
+          <div className="page-context">
+            <span className="page-context-label">COURSE</span>
+            <strong>{course.name}</strong>
+            <span className="page-context-separator">/</span>
+            <span className="page-context-label">BATCH</span>
+            <strong>{batch.name}</strong>
+          </div>
+        </div>
 
         <div className="top-actions">
           <span className={`status-pill ${batch.status}`}>
@@ -756,6 +980,45 @@ export default function BatchDetailsPage() {
                 onChange={(e) => setEndDate(e.target.value)}
               />
             </label>
+
+            <div className="whatsapp-config-card">
+              <div className="whatsapp-config-heading">
+                <div>
+                  <span className="section-kicker">WHATSAPP COMMUNITY</span>
+                  <h3>Join link configuration</h3>
+                  <p>Keep the original Community invite here. DevilX creates a dynamic link for your WhatsApp template button.</p>
+                </div>
+                <MessageCircle size={20} />
+              </div>
+
+              <label className="field wide">
+                <span>Original WhatsApp Community Link</span>
+                <input
+                  type="url"
+                  value={whatsappCommunityUrl}
+                  onChange={(e) => setWhatsappCommunityUrl(e.target.value)}
+                  placeholder="https://chat.whatsapp.com/..."
+                  autoComplete="off"
+                />
+              </label>
+
+              <div className="join-link-grid">
+                <label className="field">
+                  <span>DevilX Dynamic Join Link</span>
+                  <input
+                    value={devilxJoinLink || "Will be generated on save"}
+                    readOnly
+                  />
+                </label>
+                <label className="field">
+                  <span>Join Token</span>
+                  <input
+                    value={whatsappJoinToken || "Will be generated on save"}
+                    readOnly
+                  />
+                </label>
+              </div>
+            </div>
           </div>
 
           <div className={`formula ${pricingValid ? "valid" : "invalid"}`}>
@@ -787,9 +1050,13 @@ export default function BatchDetailsPage() {
           <section className="batch-summary">
             <div className="batch-summary-header">
               <div>
-                <span className="section-kicker">BATCH OVERVIEW</span>
-                <h2>{batch.name}</h2>
-                <p>Live student and payment summary for this batch.</p>
+                <span className="section-kicker">COURSE OVERVIEW</span>
+                <h2>{course.name}</h2>
+                <p>
+                  <strong className="course-batch-inline">Batch: {batch.name}</strong>
+                  <span className="course-description-separator"> · </span>
+                  Live student and payment summary for this batch.
+                </p>
               </div>
 
               <div className="batch-date-strip">
@@ -827,6 +1094,51 @@ export default function BatchDetailsPage() {
             </div>
           </section>
 
+          <section className="whatsapp-community-panel">
+            <div className="whatsapp-community-main">
+              <div className="whatsapp-community-icon"><MessageCircle size={21} /></div>
+              <div>
+                <span className="section-kicker">WHATSAPP COMMUNITY</span>
+                <h3>Join {batch.name} Community</h3>
+                <p>Open the original WhatsApp Community directly or use the DevilX dynamic link in your template button.</p>
+              </div>
+            </div>
+
+            <div className="whatsapp-community-actions">
+              {whatsappCommunityUrl ? (
+                <a
+                  className="whatsapp-community-button"
+                  href={whatsappCommunityUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <MessageCircle size={16} />
+                  Open Community
+                  <ExternalLink size={14} />
+                </a>
+              ) : (
+                <span className="whatsapp-community-missing">Add a Community link in Edit Batch</span>
+              )}
+
+              <button
+                type="button"
+                className="join-link-button"
+                onClick={copyJoinLink}
+                disabled={!devilxJoinLink}
+              >
+                {copyingJoinLink ? <Check size={16} /> : <Copy size={16} />}
+                {copyingJoinLink ? "Copied" : "Copy DevilX Link"}
+              </button>
+            </div>
+
+            {devilxJoinLink && (
+              <div className="whatsapp-community-link-row">
+                <Link2 size={14} />
+                <code>{devilxJoinLink}</code>
+              </div>
+            )}
+          </section>
+
           <section className="students-section">
             <div className="students-heading">
               <div>
@@ -844,14 +1156,94 @@ export default function BatchDetailsPage() {
               </div>
             </div>
 
+            <div className="payment-filter-panel">
+              <div className="payment-filter-header">
+                <div>
+                  <div className="filter-title-row">
+                    <span className="filter-icon"><Layers3 size={16} /></span>
+                    <div>
+                      <span className="filter-panel-kicker">STUDENT FILTERS</span>
+                      <h3>Filter by Payment Status</h3>
+                    </div>
+                  </div>
+                  <p>Select a payment status to filter the students you want to contact.</p>
+                </div>
+
+                <button
+                  type="button"
+                  className="whatsapp-button"
+                  onClick={openWhatsApp}
+                  disabled={filteredStudents.length === 0}
+                >
+                  <MessageCircle size={17} />
+                  <span>Send WhatsApp</span>
+                  <b>{filteredStudents.length}</b>
+                </button>
+              </div>
+
+              <div className="filter-row">
+                {[
+                  ["all", "All Students", studentFilterCounts.all],
+                  ["full", "Full Payment", studentFilterCounts.full],
+                  ["advance_balance", "Advance + Balance", studentFilterCounts.advance_balance],
+                  ["advance_only", "Advance Only", studentFilterCounts.advance_only],
+                  ["balance_only", "Balance Only", studentFilterCounts.balance_only],
+                  ["other", "Partial / Other", studentFilterCounts.other],
+                  ["no_payment", "No Payment", studentFilterCounts.no_payment],
+                ].map(([value, label, count]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={paymentFilter === value ? "filter active" : "filter"}
+                    onClick={() =>
+                      setPaymentFilter(
+                        value as
+                          | "all"
+                          | "full"
+                          | "advance_balance"
+                          | "advance_only"
+                          | "balance_only"
+                          | "other"
+                          | "no_payment",
+                      )
+                    }
+                  >
+                    <span>{label}</span>
+                    <b>{count}</b>
+                  </button>
+                ))}
+              </div>
+
+              <div className="filter-panel-footer">
+                <div className="filter-result-count">
+                  Showing <strong>{filteredStudents.length}</strong> of {students.length} students
+                  {studentSearch ? " matching your search" : ""}
+                </div>
+
+                {(studentSearch || paymentFilter !== "all") && (
+                  <button
+                    type="button"
+                    className="clear-filters"
+                    onClick={() => {
+                      setStudentSearch("");
+                      setPaymentFilter("all");
+                    }}
+                  >
+                    <X size={13} />
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="student-toolbar">
-              <div className="toolbar-main">
+              <div className="student-toolbar-search">
                 <div className="student-search">
                   <Search size={16} />
                   <input
                     value={studentSearch}
                     onChange={(event) => setStudentSearch(event.target.value)}
-                    placeholder="Search name, phone, email or city"
+                    placeholder="Search by name, phone, email or city..."
                     aria-label="Search students"
                   />
                   {studentSearch && (
@@ -865,61 +1257,7 @@ export default function BatchDetailsPage() {
                     </button>
                   )}
                 </div>
-
-                <div className="filter-area">
-                  <div className="filter-heading">
-                    <span>FILTER BY PAYMENT STATUS</span>
-                    <strong>{studentFilterCounts[paymentFilter]} students</strong>
-                  </div>
-
-                  <div className="filter-row">
-                    {[
-                      ["all", "All", studentFilterCounts.all],
-                      ["full", "Full Payment", studentFilterCounts.full],
-                      ["advance_balance", "Advance + Balance", studentFilterCounts.advance_balance],
-                      ["advance_only", "Advance Only", studentFilterCounts.advance_only],
-                      ["balance_only", "Balance Only", studentFilterCounts.balance_only],
-                      ["other", "Partial / Other", studentFilterCounts.other],
-                      ["no_payment", "No Payment", studentFilterCounts.no_payment],
-                    ].map(([value, label, count]) => (
-                      <button
-                        key={value}
-                        type="button"
-                        className={paymentFilter === value ? "filter active" : "filter"}
-                        onClick={() =>
-                          setPaymentFilter(
-                            value as
-                              | "all"
-                              | "full"
-                              | "advance_balance"
-                              | "advance_only"
-                              | "balance_only"
-                              | "other"
-                              | "no_payment",
-                          )
-                        }
-                      >
-                        <span>{label}</span>
-                        <b>{count}</b>
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
-
-              {(studentSearch || paymentFilter !== "all") && (
-                <button
-                  type="button"
-                  className="clear-filters"
-                  onClick={() => {
-                    setStudentSearch("");
-                    setPaymentFilter("all");
-                  }}
-                >
-                  <X size={13} />
-                  Clear filters
-                </button>
-              )}
             </div>
 
             {studentsLoading ? (
@@ -928,40 +1266,6 @@ export default function BatchDetailsPage() {
                 Loading students...
               </div>
             ) : (() => {
-              const query = studentSearch.trim().toLowerCase();
-
-              const filteredStudents = students.filter((student) => {
-                const matchesSearch =
-                  !query ||
-                  [
-                    student.name,
-                    student.phone,
-                    student.email,
-                    student.city,
-                    student.paymentStatus,
-                  ]
-                    .filter(Boolean)
-                    .some((value) =>
-                      String(value).toLowerCase().includes(query),
-                    );
-
-                const matchesFilter =
-                  paymentFilter === "all" ||
-                  (paymentFilter === "full" && student.paymentStatus === "Full Payment") ||
-                  (paymentFilter === "advance_balance" &&
-                    student.paymentStatus === "Advance + Balance") ||
-                  (paymentFilter === "advance_only" &&
-                    student.paymentStatus === "Advance Only") ||
-                  (paymentFilter === "balance_only" &&
-                    student.paymentStatus === "Balance Only") ||
-                  (paymentFilter === "other" &&
-                    student.paymentStatus === "Partial / Other") ||
-                  (paymentFilter === "no_payment" &&
-                    student.paymentStatus === "No Payment");
-
-                return matchesSearch && matchesFilter;
-              });
-
               if (filteredStudents.length === 0) {
                 return (
                   <div className="students-empty">
@@ -1226,6 +1530,163 @@ export default function BatchDetailsPage() {
               })()}
           </section>
         </>
+      )}
+
+      {whatsappOpen && (
+        <div className="whatsapp-modal-backdrop" role="presentation" onMouseDown={() => !whatsappSending && setWhatsappOpen(false)}>
+          <div className="whatsapp-modal" role="dialog" aria-modal="true" aria-labelledby="whatsapp-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="whatsapp-modal-header">
+              <div>
+                <span className="section-kicker">WHATSAPP CAMPAIGN</span>
+                <h2 id="whatsapp-title">Send WhatsApp Message</h2>
+                <p>{filteredStudents.length} students match the current search and payment filter.</p>
+              </div>
+              <button type="button" className="student-close" onClick={() => setWhatsappOpen(false)} disabled={whatsappSending}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="whatsapp-modal-body">
+              <div className="whatsapp-recipient-box">
+                <span>RECIPIENTS</span>
+                <strong>{filteredStudents.length} students</strong>
+                <small>Current filter: {paymentFilter === "all" ? "All students" : paymentFilter.replaceAll("_", " ")}</small>
+              </div>
+
+              <div className="whatsapp-form-grid">
+                <label className="field">
+                  <span>Template Name *</span>
+                  <input
+                    value={whatsappTemplateName}
+                    onChange={(event) => setWhatsappTemplateName(event.target.value)}
+                    placeholder="Example: payment_balance_reminder"
+                    disabled={whatsappSending}
+                    autoComplete="off"
+                  />
+                  <small>Enter the exact approved template name from Whapter / WhatsApp.</small>
+                </label>
+
+                <label className="field">
+                  <span>Language Code</span>
+                  <input
+                    value={whatsappLanguageCode}
+                    onChange={(event) => setWhatsappLanguageCode(event.target.value)}
+                    placeholder="en_US"
+                    disabled={whatsappSending}
+                    autoComplete="off"
+                  />
+                </label>
+              </div>
+
+              <div className="whatsapp-variable-heading">
+                <div>
+                  <span>VARIABLES</span>
+                  <small>Add variables in the exact order expected by your WhatsApp template.</small>
+                </div>
+                <button type="button" className="secondary-button" onClick={addWhatsAppVariable} disabled={whatsappSending}>
+                  <Plus size={15} /> Add Variable
+                </button>
+              </div>
+
+              <div className="whatsapp-variable-list">
+                {whatsappVariables.length === 0 ? (
+                  <div className="whatsapp-empty-variables">
+                    No variables added. Click <strong>+ Add Variable</strong> if your template uses {"{{1}}, {{2}}"}, etc.
+                  </div>
+                ) : (
+                  whatsappVariables.map((variable, index) => (
+                    <div className="whatsapp-variable-row" key={variable.id}>
+                      <div className="whatsapp-variable-number">{index + 1}</div>
+
+                      <input
+                        className="whatsapp-variable-key"
+                        value={variable.key}
+                        onChange={(event) => updateWhatsAppVariable(index, { key: event.target.value })}
+                        placeholder={`{{${index + 1}}} / variable name`}
+                        disabled={whatsappSending}
+                        aria-label={`Variable ${index + 1} name`}
+                      />
+
+                      <select
+                        value={variable.source}
+                        onChange={(event) => updateWhatsAppVariable(index, { source: event.target.value })}
+                        disabled={whatsappSending}
+                        aria-label={`Variable ${index + 1} source`}
+                      >
+                        <option value="custom">Manual value</option>
+                        {Object.entries(WHATSAPP_VARIABLE_LABELS).map(([key, label]) => (
+                          <option key={key} value={key}>{label}</option>
+                        ))}
+                      </select>
+
+                      {variable.source === "custom" ? (
+                        <input
+                          value={variable.customValue}
+                          onChange={(event) => updateWhatsAppVariable(index, { customValue: event.target.value })}
+                          placeholder="Enter value"
+                          disabled={whatsappSending}
+                          aria-label={`Variable ${index + 1} value`}
+                        />
+                      ) : (
+                        <div className="whatsapp-auto-value">
+                          Auto: {WHATSAPP_VARIABLE_LABELS[variable.source] || variable.source}
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        className="whatsapp-delete-variable"
+                        onClick={() => removeWhatsAppVariable(index)}
+                        disabled={whatsappSending}
+                        aria-label={`Remove variable ${index + 1}`}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="whatsapp-variable-help">
+                <strong>Available automatic values:</strong> name, phone, email, city, course, batch, paid, balance, full amount, payment status, payment ID, payment date.
+                You can also choose <strong>Manual value</strong> for any variable.
+              </div>
+
+              <div className="whatsapp-preview">
+                <span>PREVIEW</span>
+                <p>
+                  Template: <code>{whatsappTemplateName || "your_template_name"}</code> · {whatsappVariables.length} variable{whatsappVariables.length === 1 ? "" : "s"}.
+                </p>
+                {filteredStudents[0] && whatsappVariables.length > 0 && (
+                  <div className="whatsapp-preview-values">
+                    {whatsappVariables.map((variable, index) => (
+                      <div key={variable.id}>
+                        <span>{`{{${index + 1}}}`}</span>
+                        <strong>{getWhatsAppVariableValue(filteredStudents[0], variable) || "(empty)"}</strong>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {whatsappError && <div className="whatsapp-error">{whatsappError}</div>}
+              {whatsappResult && (
+                <div className="whatsapp-result">
+                  <strong>Campaign finished</strong>
+                  <span>{whatsappResult.sent} sent · {whatsappResult.failed} failed · {whatsappResult.skipped} skipped (no phone)</span>
+                </div>
+              )}
+            </div>
+
+            <div className="whatsapp-modal-actions">
+              <button type="button" className="secondary-button" onClick={() => setWhatsappOpen(false)} disabled={whatsappSending}>Cancel</button>
+              <button type="button" className="primary-button" onClick={sendWhatsAppMessages} disabled={whatsappSending || filteredStudents.length === 0}>
+                {whatsappSending ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
+                {whatsappSending ? "Sending..." : `Send to ${filteredStudents.length}`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <Styles />
@@ -2574,6 +3035,315 @@ function Styles() {
         overflow-wrap: anywhere;
       }
 
+      .whatsapp-config-card {
+        grid-column: 1 / -1;
+        padding: 18px;
+        border: 1px solid #242428;
+        border-radius: 12px;
+        background: linear-gradient(180deg, #0e0e0f, #0a0a0b);
+      }
+
+      .whatsapp-config-heading {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 16px;
+      }
+
+      .whatsapp-config-heading h3,
+      .whatsapp-community-main h3 {
+        margin: 0;
+        color: #f1f1f3;
+        font-size: 15px;
+      }
+
+      .whatsapp-config-heading p,
+      .whatsapp-community-main p {
+        margin: 6px 0 0;
+        color: #77777f;
+        font-size: 11px;
+        line-height: 1.55;
+      }
+
+      .whatsapp-config-heading > svg {
+        color: #25d366;
+        flex: 0 0 auto;
+      }
+
+      .join-link-grid {
+        display: grid;
+        grid-template-columns: 1.5fr 1fr;
+        gap: 12px;
+        margin-top: 12px;
+      }
+
+      .whatsapp-community-panel {
+        max-width: 1180px;
+        margin: 14px auto 0;
+        padding: 17px 18px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        border: 1px solid rgba(37, 211, 102, .18);
+        border-radius: 12px;
+        background: linear-gradient(180deg, rgba(37,211,102,.055), rgba(10,10,11,.98));
+      }
+
+      .whatsapp-community-main {
+        min-width: 0;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
+      .whatsapp-community-icon {
+        width: 40px;
+        height: 40px;
+        flex: 0 0 40px;
+        display: grid;
+        place-items: center;
+        border: 1px solid rgba(37,211,102,.25);
+        border-radius: 10px;
+        color: #25d366;
+        background: rgba(37,211,102,.08);
+      }
+
+      .whatsapp-community-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 0 0 auto;
+      }
+
+      .whatsapp-community-button,
+      .join-link-button {
+        min-height: 39px;
+        padding: 0 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        border-radius: 8px;
+        font-size: 11px;
+        font-weight: 850;
+        text-decoration: none;
+        transition: .16s ease;
+      }
+
+      .whatsapp-community-button {
+        border: 1px solid rgba(37,211,102,.45);
+        color: #fff;
+        background: linear-gradient(180deg, #25d366, #128c7e);
+      }
+
+      .whatsapp-community-button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 22px rgba(37,211,102,.15);
+      }
+
+      .join-link-button {
+        border: 1px solid #29292d;
+        color: #c9c9ce;
+        background: #111112;
+      }
+
+      .join-link-button:hover:not(:disabled) {
+        color: #fff;
+        border-color: #3b3b40;
+        background: #171718;
+      }
+
+      .whatsapp-community-missing {
+        color: #77777f;
+        font-size: 11px;
+      }
+
+      .whatsapp-community-link-row {
+        margin-top: 12px;
+        padding-top: 10px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        border-top: 1px solid rgba(255,255,255,.06);
+        color: #6e6e76;
+        min-width: 0;
+      }
+
+      .whatsapp-community-link-row code {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: #9a9aa2;
+        font-size: 10px;
+      }
+
+      .whatsapp-button {
+        min-height: 38px;
+        padding: 0 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        border: 1px solid rgba(46, 216, 102, .25);
+        border-radius: 8px;
+        color: #9be7ae;
+        background: rgba(46, 216, 102, .07);
+        font-size: 12px;
+        font-weight: 800;
+        white-space: nowrap;
+      }
+
+      .whatsapp-button:hover:not(:disabled) {
+        border-color: rgba(46, 216, 102, .45);
+        background: rgba(46, 216, 102, .12);
+      }
+
+      .whatsapp-button:disabled { opacity: .45; }
+
+      .whatsapp-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        padding: 24px;
+        display: grid;
+        place-items: center;
+        background: rgba(0, 0, 0, .78);
+        backdrop-filter: blur(5px);
+      }
+
+      .whatsapp-modal {
+        width: min(780px, 100%);
+        max-height: min(850px, 92vh);
+        display: flex;
+        flex-direction: column;
+        border: 1px solid #29292d;
+        border-radius: 13px;
+        background: #0c0c0d;
+        box-shadow: 0 30px 90px rgba(0,0,0,.55);
+        overflow: hidden;
+      }
+
+      .whatsapp-modal-header {
+        padding: 20px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 15px;
+        border-bottom: 1px solid #202023;
+      }
+
+      .whatsapp-modal-header h2 { margin: 0 0 5px; font-size: 19px; }
+      .whatsapp-modal-header p { margin: 0; color: #707078; font-size: 12px; }
+
+      .whatsapp-modal-body {
+        padding: 18px 20px;
+        overflow-y: auto;
+      }
+
+      .whatsapp-recipient-box {
+        margin-bottom: 15px;
+        padding: 12px 14px;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 4px 12px;
+        border: 1px solid rgba(46,216,102,.16);
+        border-radius: 9px;
+        background: rgba(46,216,102,.045);
+      }
+
+      .whatsapp-recipient-box span,
+      .whatsapp-variable-heading span,
+      .whatsapp-preview > span {
+        color: #6b6b73;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: .1em;
+      }
+
+      .whatsapp-recipient-box strong { color: #9be7ae; font-size: 13px; }
+      .whatsapp-recipient-box small { color: #77777f; font-size: 11px; grid-column: 1 / -1; }
+
+      .field select {
+        width: 100%;
+        min-height: 40px;
+        padding: 0 10px;
+        border: 1px solid #29292d;
+        border-radius: 8px;
+        outline: 0;
+        color: #eee;
+        background: #101011;
+        font-size: 13px;
+      }
+
+      .whatsapp-variable-heading {
+        margin-top: 18px;
+        margin-bottom: 9px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .whatsapp-variable-heading small { display: block; margin-top: 3px; color: #66666e; font-size: 11px; }
+
+      .whatsapp-variable-list { display: grid; gap: 7px; }
+
+      .whatsapp-variable-row {
+        min-width: 0;
+        padding: 9px;
+        display: grid;
+        grid-template-columns: 26px minmax(125px, 1fr) minmax(145px, .85fr) minmax(150px, 1fr) 30px;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid #202023;
+        border-radius: 8px;
+        background: #101011;
+      }
+
+      .whatsapp-variable-number {
+        width: 24px; height: 24px; display: grid; place-items: center;
+        border-radius: 6px; color: #77777f; background: #18181a; font-size: 10px; font-weight: 800;
+      }
+
+      .whatsapp-variable-name { min-width: 0; }
+      .whatsapp-variable-name strong { display: block; color: #dddde0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .whatsapp-variable-name span { color: #65656c; font-size: 10px; }
+
+      .whatsapp-variable-row select,
+      .whatsapp-variable-row input {
+        width: 100%; min-width: 0; min-height: 35px; padding: 0 8px;
+        border: 1px solid #29292d; border-radius: 7px; outline: 0; color: #ddd; background: #0c0c0d; font-size: 11px;
+      }
+
+      .whatsapp-auto-value {
+        min-width: 0; min-height: 35px; padding: 9px 8px;
+        border: 1px solid #202023; border-radius: 7px; color: #77777f; background: #0c0c0d; font-size: 11px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+
+      .whatsapp-delete-variable {
+        width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid #29292d; border-radius: 7px; color: #77777f; background: #111112;
+      }
+      .whatsapp-delete-variable:hover { color: #ff9caf; border-color: rgba(255,23,68,.3); }
+
+      .whatsapp-preview {
+        margin-top: 14px; padding: 12px 13px; border: 1px solid #202023; border-radius: 8px; background: #101011;
+      }
+      .whatsapp-preview p { margin: 6px 0 0; color: #8a8a92; font-size: 12px; line-height: 1.5; }
+      .whatsapp-preview strong { color: #dddde0; }
+      .whatsapp-preview code { color: #aaaab2; }
+
+      .whatsapp-error, .whatsapp-result { margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 12px; }
+      .whatsapp-error { border: 1px solid rgba(255,23,68,.2); color: #ff9caf; background: rgba(255,23,68,.05); }
+      .whatsapp-result { display: grid; gap: 3px; border: 1px solid rgba(46,216,102,.18); color: #9be7ae; background: rgba(46,216,102,.05); }
+      .whatsapp-result span { color: #77777f; }
+
+      .whatsapp-modal-actions {
+        padding: 13px 20px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid #202023;
+      }
+
       /* Tablet */
       @media (max-width: 900px) {
         .page-shell {
@@ -2650,6 +3420,34 @@ function Styles() {
         .student-detail-grid > div:nth-child(-n + 4) {
           border-bottom: 1px solid #1c1c1f;
         }
+      }
+
+      @media (max-width: 760px) {
+        .whatsapp-community-panel {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .whatsapp-community-actions {
+          width: 100%;
+          flex-direction: column;
+        }
+
+        .whatsapp-community-button,
+        .join-link-button {
+          width: 100%;
+        }
+
+        .join-link-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .whatsapp-modal-backdrop { padding: 10px; }
+        .whatsapp-variable-row { grid-template-columns: 26px 1fr 30px; }
+        .whatsapp-variable-row select,
+        .whatsapp-variable-row input,
+        .whatsapp-auto-value { grid-column: 2 / -1; }
+        .whatsapp-variable-heading { align-items: flex-start; flex-direction: column; }
       }
 
       /* Phone */
@@ -2905,6 +3703,11 @@ function Styles() {
           text-align: left;
         }
 
+        .whatsapp-modal-header { padding: 15px; }
+        .whatsapp-modal-body { padding: 14px; }
+        .whatsapp-modal-actions { padding: 11px 14px; display: grid; grid-template-columns: 1fr 1fr; }
+        .whatsapp-modal-actions button { width: 100%; }
+
         .students-loading,
         .students-empty {
           min-height: 160px;
@@ -2993,6 +3796,414 @@ function Styles() {
         }
       }
 
+
+      .whatsapp-form-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+        gap: 12px;
+      }
+
+      .whatsapp-form-grid small,
+      .whatsapp-variable-help {
+        color: #8d8d94;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .whatsapp-variable-key {
+        min-width: 140px;
+      }
+
+      .whatsapp-empty-variables {
+        border: 1px dashed #303036;
+        border-radius: 9px;
+        padding: 14px;
+        color: #96969d;
+        font-size: 12px;
+      }
+
+      .whatsapp-variable-help {
+        padding: 10px 0 0;
+      }
+
+      .whatsapp-preview-values {
+        display: grid;
+        gap: 6px;
+        margin-top: 10px;
+      }
+
+      .whatsapp-preview-values > div {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 7px 9px;
+        border-radius: 7px;
+        background: #141416;
+      }
+
+      .whatsapp-preview-values span {
+        color: #8d8d94;
+        font-family: monospace;
+      }
+
+      .whatsapp-preview-values strong {
+        text-align: right;
+        overflow-wrap: anywhere;
+      }
+
+      @media (max-width: 700px) {
+        .whatsapp-form-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .whatsapp-variable-row {
+          grid-template-columns: 30px 1fr;
+        }
+
+        .whatsapp-variable-row select,
+        .whatsapp-variable-row input,
+        .whatsapp-auto-value {
+          grid-column: 2;
+          width: 100%;
+        }
+
+        .whatsapp-delete-variable {
+          grid-column: 2;
+          justify-self: end;
+        }
+      }
+
+      /* ===== DEVILX COURSE + PAYMENT FILTER REDESIGN ===== */
+
+      .topbar-left {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .page-context {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        white-space: nowrap;
+      }
+
+      .page-context-label {
+        color: #5d5d64;
+        font-size: 9px;
+        font-weight: 900;
+        letter-spacing: .12em;
+      }
+
+      .page-context strong {
+        max-width: 220px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: #f0f0f2;
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .page-context-separator {
+        color: #38383d;
+        font-size: 16px;
+      }
+
+      .course-batch-inline {
+        color: #dcdce0;
+        font-weight: 800;
+      }
+
+      .course-description-separator {
+        color: #3e3e43;
+      }
+
+      .payment-filter-panel {
+        margin: 0;
+        padding: 18px 20px 14px;
+        border: 1px solid #242428;
+        border-radius: 12px;
+        background:
+          linear-gradient(135deg, rgba(255,23,68,.035), transparent 42%),
+          #0b0b0c;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.015);
+      }
+
+      .payment-filter-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        margin-bottom: 15px;
+      }
+
+      .filter-title-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .filter-icon {
+        width: 34px;
+        height: 34px;
+        flex: 0 0 34px;
+        display: grid;
+        place-items: center;
+        border: 1px solid rgba(255,23,68,.2);
+        border-radius: 9px;
+        color: #ff1744;
+        background: rgba(255,23,68,.07);
+      }
+
+      .filter-panel-kicker {
+        display: block;
+        margin-bottom: 3px;
+        color: #66666d;
+        font-size: 9px;
+        font-weight: 900;
+        letter-spacing: .13em;
+      }
+
+      .filter-title-row h3 {
+        margin: 0;
+        color: #ededf0;
+        font-size: 15px;
+        letter-spacing: -.015em;
+      }
+
+      .payment-filter-header > div > p {
+        margin: 7px 0 0 44px;
+        color: #696970;
+        font-size: 11px;
+      }
+
+      .payment-filter-panel .filter-row {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 7px;
+      }
+
+      .payment-filter-panel .filter {
+        min-width: 0;
+        min-height: 45px;
+        padding: 7px 9px;
+        justify-content: space-between;
+        gap: 8px;
+        border-color: #29292d;
+        border-radius: 9px;
+        color: #92929a;
+        background: #101011;
+        text-align: left;
+      }
+
+      .payment-filter-panel .filter span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .payment-filter-panel .filter b {
+        min-width: 24px;
+        height: 24px;
+        border-radius: 7px;
+        color: #77777f;
+        background: #19191b;
+        font-size: 11px;
+      }
+
+      .payment-filter-panel .filter:hover {
+        border-color: #44444a;
+        color: #f0f0f2;
+        background: #141416;
+        transform: translateY(-1px);
+      }
+
+      .payment-filter-panel .filter.active {
+        border-color: rgba(255,23,68,.55);
+        color: #fff;
+        background: linear-gradient(180deg, rgba(255,23,68,.13), rgba(255,23,68,.055));
+        box-shadow: 0 0 0 1px rgba(255,23,68,.06), 0 8px 24px rgba(0,0,0,.16);
+      }
+
+      .payment-filter-panel .filter.active b {
+        color: #fff;
+        background: #ff1744;
+        box-shadow: 0 4px 12px rgba(255,23,68,.2);
+      }
+
+      .filter-panel-footer {
+        min-height: 31px;
+        margin-top: 11px;
+        padding-top: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border-top: 1px solid #1c1c1f;
+      }
+
+      .filter-result-count {
+        color: #66666e;
+        font-size: 11px;
+      }
+
+      .filter-result-count strong {
+        color: #dcdce0;
+      }
+
+      .payment-filter-panel .clear-filters {
+        height: 30px;
+        color: #8c8c94;
+        background: #111112;
+      }
+
+      .payment-filter-panel .clear-filters:hover {
+        color: #fff;
+        border-color: rgba(255,23,68,.3);
+      }
+
+      .payment-filter-panel + .student-toolbar {
+        margin-top: 10px;
+        border: 1px solid #242428;
+        border-radius: 11px;
+        background: #0b0b0c;
+      }
+
+      .student-toolbar-search {
+        width: 100%;
+      }
+
+      .student-toolbar-search .student-search {
+        width: min(520px, 100%);
+      }
+
+      .whatsapp-button {
+        min-height: 42px;
+        padding: 0 10px 0 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border: 1px solid rgba(37, 211, 102, .45);
+        border-radius: 9px;
+        color: #fff;
+        background: linear-gradient(180deg, #25d366, #128c7e);
+        box-shadow: 0 8px 24px rgba(37, 211, 102, .12);
+        font-size: 12px;
+        font-weight: 850;
+        white-space: nowrap;
+        transition: .16s ease;
+      }
+
+      .whatsapp-button b {
+        min-width: 25px;
+        height: 25px;
+        padding: 0 7px;
+        display: inline-grid;
+        place-items: center;
+        border-radius: 7px;
+        color: #fff;
+        background: rgba(0, 0, 0, .22);
+        font-size: 10px;
+      }
+
+      .whatsapp-button:hover:not(:disabled) {
+        border-color: #25d366;
+        background: linear-gradient(180deg, #2be06f, #128c7e);
+        box-shadow: 0 10px 30px rgba(37, 211, 102, .20);
+        transform: translateY(-1px);
+      }
+
+      .whatsapp-button:disabled {
+        opacity: .4;
+        box-shadow: none;
+      }
+
+      @media (max-width: 1050px) {
+        .payment-filter-panel .filter-row {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 760px) {
+        .topbar-left {
+          width: 100%;
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .page-context {
+          width: 100%;
+          padding-left: 2px;
+          flex-wrap: wrap;
+          white-space: normal;
+        }
+
+        .page-context strong {
+          max-width: 40vw;
+        }
+
+        .payment-filter-header {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .payment-filter-header > .whatsapp-button {
+          width: 100%;
+        }
+
+        .payment-filter-panel .filter-row {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .filter-panel-footer {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .filter-panel-footer .clear-filters {
+          width: 100%;
+          justify-content: center;
+        }
+
+        .payment-filter-panel {
+          padding: 15px;
+        }
+      }
+
+      @media (max-width: 430px) {
+        .page-context {
+          gap: 6px;
+        }
+
+        .page-context-label {
+          font-size: 8px;
+        }
+
+        .page-context strong {
+          max-width: 100%;
+        }
+
+        .page-context-separator {
+          display: none;
+        }
+
+        .payment-filter-panel .filter-row {
+          grid-template-columns: 1fr;
+        }
+
+        .payment-filter-panel .filter {
+          min-height: 42px;
+        }
+
+        .payment-filter-header > div > p {
+          margin-left: 0;
+        }
+      }
     `}</style>
   );
 }
