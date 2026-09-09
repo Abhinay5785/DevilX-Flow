@@ -9,6 +9,7 @@ import {
   CirclePlus,
   Edit3,
   Layers3,
+  MessageCircle,
   MoreHorizontal,
   Power,
   Search,
@@ -40,6 +41,8 @@ type Batch = {
   status: "active" | "inactive";
   start_date: string | null;
   end_date: string | null;
+  whatsapp_community_url: string | null;
+  whatsapp_doubts_url: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -53,6 +56,8 @@ type BatchForm = {
   payment_mode: "single" | "split";
   start_date: string;
   end_date: string;
+  whatsapp_community_url: string;
+  whatsapp_doubts_url: string;
 };
 
 type CoursePayment = {
@@ -114,6 +119,8 @@ const emptyForm: BatchForm = {
   payment_mode: "split",
   start_date: "",
   end_date: "",
+  whatsapp_community_url: "",
+  whatsapp_doubts_url: "",
 };
 
 export default function CourseDetailsPage() {
@@ -152,7 +159,7 @@ export default function CourseDetailsPage() {
       supabase
         .from("course_batches")
         .select(
-          "id,course_id,name,description,advance_amount,balance_amount,full_amount,payment_mode,status,start_date,end_date,created_at,updated_at",
+          "id,course_id,name,description,advance_amount,balance_amount,full_amount,payment_mode,status,start_date,end_date,whatsapp_community_url,whatsapp_doubts_url,created_at,updated_at",
         )
         .eq("course_id", courseId)
         .order("created_at", { ascending: true }),
@@ -456,6 +463,8 @@ export default function CourseDetailsPage() {
       payment_mode: batch.payment_mode === "single" ? "single" : "split",
       start_date: batch.start_date ?? "",
       end_date: batch.end_date ?? "",
+      whatsapp_community_url: batch.whatsapp_community_url ?? "",
+      whatsapp_doubts_url: batch.whatsapp_doubts_url ?? "",
     });
     setError("");
     setMenuBatchId(null);
@@ -525,6 +534,8 @@ export default function CourseDetailsPage() {
       payment_mode: form.payment_mode,
       start_date: form.start_date || null,
       end_date: form.end_date || null,
+      whatsapp_community_url: form.whatsapp_community_url.trim() || null,
+      whatsapp_doubts_url: form.whatsapp_doubts_url.trim() || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -1229,6 +1240,54 @@ export default function CourseDetailsPage() {
                     }
                   />
                 </label>
+              </div>
+
+              <div className="whatsapp-links-section">
+                <div className="whatsapp-links-heading">
+                  <div className="whatsapp-links-icon">
+                    <MessageCircle size={17} />
+                  </div>
+                  <div>
+                    <strong>WhatsApp Links</strong>
+                    <span>Add the links students should use for this batch.</span>
+                  </div>
+                </div>
+
+                <div className="whatsapp-links-grid">
+                  <label>
+                    <span>WhatsApp Community Link</span>
+                    <input
+                      type="url"
+                      value={form.whatsapp_community_url}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          whatsapp_community_url: event.target.value,
+                        }))
+                      }
+                      placeholder="https://chat.whatsapp.com/..." 
+                      autoComplete="off"
+                    />
+                    <small className="field-help">Main WhatsApp Community/group link for this batch.</small>
+                  </label>
+
+                  <label>
+                    <span>Doubts Group Link</span>
+                    <input
+                      type="url"
+                      value={form.whatsapp_doubts_url}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          whatsapp_doubts_url: event.target.value,
+                        }))
+                      }
+                      placeholder="https://chat.whatsapp.com/..." 
+                      autoComplete="off"
+                    />
+                    <small className="field-help">Separate WhatsApp group for student doubts.</small>
+                  </label>
+                </div>
               </div>
 
               {form.payment_mode === "single" ? (
@@ -2542,6 +2601,62 @@ const baseStyles = `
     border-radius: 0;
     padding: 0 9px;
     background: transparent;
+  }
+
+  .whatsapp-links-section {
+    padding: 14px;
+    border: 1px solid #202023;
+    border-radius: 10px;
+    background: #0a0a0b;
+  }
+
+  .whatsapp-links-heading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .whatsapp-links-icon {
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(37,211,102,.22);
+    border-radius: 8px;
+    color: #25d366;
+    background: rgba(37,211,102,.07);
+  }
+
+  .whatsapp-links-heading strong,
+  .whatsapp-links-heading span {
+    display: block;
+  }
+
+  .whatsapp-links-heading strong {
+    color: #e8e8ea;
+    font-size: 12px;
+  }
+
+  .whatsapp-links-heading span {
+    margin-top: 3px;
+    color: #686870;
+    font-size: 10px;
+  }
+
+  .whatsapp-links-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .whatsapp-links-grid label {
+    min-width: 0;
+  }
+
+  .whatsapp-links-grid input {
+    width: 100%;
   }
 
   .rule-box {
@@ -4323,6 +4438,12 @@ const baseStyles = `
   }
 
   /* Very small phones */
+  @media (max-width: 600px) {
+    .whatsapp-links-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
   @media (max-width: 380px) {
     .page-shell {
       padding-left: 8px;

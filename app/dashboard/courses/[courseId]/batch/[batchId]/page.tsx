@@ -9,9 +9,6 @@ import {
   Layers3,
   Loader2,
   MessageCircle,
-  Link2,
-  Copy,
-  ExternalLink,
   Send,
   Plus,
   Trash2,
@@ -45,6 +42,7 @@ type Batch = {
   updated_at: string;
   whatsapp_community_url?: string | null;
   whatsapp_join_token?: string | null;
+  whatsapp_doubts_url?: string | null;
 };
 
 type StudentPayment = {
@@ -143,7 +141,7 @@ export default function BatchDetailsPage() {
   const [endDate, setEndDate] = useState("");
   const [whatsappCommunityUrl, setWhatsappCommunityUrl] = useState("");
   const [whatsappJoinToken, setWhatsappJoinToken] = useState("");
-  const [copyingJoinLink, setCopyingJoinLink] = useState(false);
+  const [whatsappDoubtsUrl, setWhatsappDoubtsUrl] = useState("");
 
   const getPaymentKind = (
     payment: StudentPayment,
@@ -353,7 +351,7 @@ export default function BatchDetailsPage() {
         supabase
           .from("course_batches")
           .select(
-            "id,course_id,name,advance_amount,balance_amount,full_amount,status,start_date,end_date,created_at,updated_at,whatsapp_community_url,whatsapp_join_token",
+            "id,course_id,name,advance_amount,balance_amount,full_amount,status,start_date,end_date,created_at,updated_at,whatsapp_community_url,whatsapp_join_token,whatsapp_doubts_url",
           )
           .eq("id", batchId)
           .eq("course_id", courseId)
@@ -378,6 +376,7 @@ export default function BatchDetailsPage() {
     setEndDate(batchData.end_date || "");
     setWhatsappCommunityUrl(batchData.whatsapp_community_url || "");
     setWhatsappJoinToken(batchData.whatsapp_join_token || "");
+    setWhatsappDoubtsUrl(batchData.whatsapp_doubts_url || "");
     await loadStudents(courseData.name, batchData.name, batchData);
     setLoading(false);
   };
@@ -494,6 +493,7 @@ export default function BatchDetailsPage() {
         end_date: endDate || null,
         whatsapp_community_url: whatsappCommunityUrl.trim() || null,
         whatsapp_join_token: whatsappJoinToken.trim() || generateJoinToken(),
+        whatsapp_doubts_url: whatsappDoubtsUrl.trim() || null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", batchId)
@@ -516,6 +516,7 @@ export default function BatchDetailsPage() {
     setEndDate(data.end_date || "");
     setWhatsappCommunityUrl(data.whatsapp_community_url || "");
     setWhatsappJoinToken(data.whatsapp_join_token || "");
+    setWhatsappDoubtsUrl(data.whatsapp_doubts_url || "");
     setEditing(false);
     await loadStudents(course?.name, data.name, data);
     setMessage("Batch configuration saved.");
@@ -561,6 +562,7 @@ export default function BatchDetailsPage() {
     setEndDate(batch.end_date || "");
     setWhatsappCommunityUrl(batch.whatsapp_community_url || "");
     setWhatsappJoinToken(batch.whatsapp_join_token || "");
+    setWhatsappDoubtsUrl(batch.whatsapp_doubts_url || "");
     setEditing(false);
     setMessage("");
   };
@@ -710,17 +712,6 @@ export default function BatchDetailsPage() {
       ? `${window.location.origin}/join/${whatsappJoinToken}`
       : "";
 
-  const copyJoinLink = async () => {
-    if (!devilxJoinLink) return;
-
-    try {
-      await navigator.clipboard.writeText(devilxJoinLink);
-      setCopyingJoinLink(true);
-      window.setTimeout(() => setCopyingJoinLink(false), 1400);
-    } catch {
-      setMessage("Could not copy the DevilX join link.");
-    }
-  };
 
   const openWhatsApp = () => {
     setWhatsappError("");
@@ -874,6 +865,30 @@ export default function BatchDetailsPage() {
             {batch.status}
           </span>
 
+          {whatsappCommunityUrl && (
+            <a
+              className="whatsapp-top-button"
+              href={whatsappCommunityUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <MessageCircle size={16} />
+              WhatsApp Community
+            </a>
+          )}
+
+          {whatsappDoubtsUrl && (
+            <a
+              className="whatsapp-top-button whatsapp-doubts-top-button"
+              href={whatsappDoubtsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <MessageCircle size={16} />
+              Doubts Group
+            </a>
+          )}
+
           <button className="secondary-button" onClick={toggleStatus} disabled={saving}>
             {batch.status === "active" ? (
               <ToggleRight size={18} />
@@ -1002,6 +1017,17 @@ export default function BatchDetailsPage() {
                 />
               </label>
 
+              <label className="field wide">
+                <span>Doubts Group Link</span>
+                  <input
+                    type="url"
+                    value={whatsappDoubtsUrl}
+                    onChange={(e) => setWhatsappDoubtsUrl(e.target.value)}
+                    placeholder="https://chat.whatsapp.com/..."
+                    autoComplete="off"
+                />
+              </label>
+
               <div className="join-link-grid">
                 <label className="field">
                   <span>DevilX Dynamic Join Link</span>
@@ -1092,51 +1118,6 @@ export default function BatchDetailsPage() {
                 accent="full"
               />
             </div>
-          </section>
-
-          <section className="whatsapp-community-panel">
-            <div className="whatsapp-community-main">
-              <div className="whatsapp-community-icon"><MessageCircle size={21} /></div>
-              <div>
-                <span className="section-kicker">WHATSAPP COMMUNITY</span>
-                <h3>Join {batch.name} Community</h3>
-                <p>Open the original WhatsApp Community directly or use the DevilX dynamic link in your template button.</p>
-              </div>
-            </div>
-
-            <div className="whatsapp-community-actions">
-              {whatsappCommunityUrl ? (
-                <a
-                  className="whatsapp-community-button"
-                  href={whatsappCommunityUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <MessageCircle size={16} />
-                  Open Community
-                  <ExternalLink size={14} />
-                </a>
-              ) : (
-                <span className="whatsapp-community-missing">Add a Community link in Edit Batch</span>
-              )}
-
-              <button
-                type="button"
-                className="join-link-button"
-                onClick={copyJoinLink}
-                disabled={!devilxJoinLink}
-              >
-                {copyingJoinLink ? <Check size={16} /> : <Copy size={16} />}
-                {copyingJoinLink ? "Copied" : "Copy DevilX Link"}
-              </button>
-            </div>
-
-            {devilxJoinLink && (
-              <div className="whatsapp-community-link-row">
-                <Link2 size={14} />
-                <code>{devilxJoinLink}</code>
-              </div>
-            )}
           </section>
 
           <section className="students-section">
@@ -1815,6 +1796,37 @@ function Styles() {
         display: flex;
         align-items: center;
         gap: 8px;
+      }
+
+      .whatsapp-top-button {
+        min-height: 39px;
+        padding: 0 13px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        border: 1px solid rgba(37, 211, 102, 0.35);
+        border-radius: 8px;
+        color: #fff;
+        background: linear-gradient(180deg, #25d366, #128c7e);
+        font-size: 11px;
+        font-weight: 850;
+        text-decoration: none;
+        transition: 0.16s ease;
+      }
+
+      .whatsapp-group-top-button {
+        background: linear-gradient(180deg, #1fa85b, #16864f);
+      }
+
+      .whatsapp-doubts-top-button {
+        background: linear-gradient(180deg, #6f5cff, #5143c9);
+        border-color: rgba(111, 92, 255, .35);
+      }
+
+  .whatsapp-top-button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 22px rgba(37, 211, 102, 0.15);
       }
 
       .primary-button {
@@ -3043,7 +3055,16 @@ function Styles() {
         background: linear-gradient(180deg, #0e0e0f, #0a0a0b);
       }
 
-      .whatsapp-config-heading {
+      .batch-edit-whatsapp-links {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin: 12px 0;
+      }
+
+      .batch-edit-whatsapp-links .field {
+        width: 100%;
+      }
+
+  .whatsapp-config-heading {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
@@ -3058,8 +3079,7 @@ function Styles() {
         font-size: 15px;
       }
 
-      .whatsapp-config-heading p,
-      .whatsapp-community-main p {
+      .whatsapp-config-heading p {
         margin: 6px 0 0;
         color: #77777f;
         font-size: 11px;
@@ -3078,106 +3098,6 @@ function Styles() {
         margin-top: 12px;
       }
 
-      .whatsapp-community-panel {
-        max-width: 1180px;
-        margin: 14px auto 0;
-        padding: 17px 18px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 18px;
-        border: 1px solid rgba(37, 211, 102, .18);
-        border-radius: 12px;
-        background: linear-gradient(180deg, rgba(37,211,102,.055), rgba(10,10,11,.98));
-      }
-
-      .whatsapp-community-main {
-        min-width: 0;
-        display: flex;
-        align-items: flex-start;
-        gap: 12px;
-      }
-
-      .whatsapp-community-icon {
-        width: 40px;
-        height: 40px;
-        flex: 0 0 40px;
-        display: grid;
-        place-items: center;
-        border: 1px solid rgba(37,211,102,.25);
-        border-radius: 10px;
-        color: #25d366;
-        background: rgba(37,211,102,.08);
-      }
-
-      .whatsapp-community-actions {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex: 0 0 auto;
-      }
-
-      .whatsapp-community-button,
-      .join-link-button {
-        min-height: 39px;
-        padding: 0 12px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 7px;
-        border-radius: 8px;
-        font-size: 11px;
-        font-weight: 850;
-        text-decoration: none;
-        transition: .16s ease;
-      }
-
-      .whatsapp-community-button {
-        border: 1px solid rgba(37,211,102,.45);
-        color: #fff;
-        background: linear-gradient(180deg, #25d366, #128c7e);
-      }
-
-      .whatsapp-community-button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 8px 22px rgba(37,211,102,.15);
-      }
-
-      .join-link-button {
-        border: 1px solid #29292d;
-        color: #c9c9ce;
-        background: #111112;
-      }
-
-      .join-link-button:hover:not(:disabled) {
-        color: #fff;
-        border-color: #3b3b40;
-        background: #171718;
-      }
-
-      .whatsapp-community-missing {
-        color: #77777f;
-        font-size: 11px;
-      }
-
-      .whatsapp-community-link-row {
-        margin-top: 12px;
-        padding-top: 10px;
-        display: flex;
-        align-items: center;
-        gap: 7px;
-        border-top: 1px solid rgba(255,255,255,.06);
-        color: #6e6e76;
-        min-width: 0;
-      }
-
-      .whatsapp-community-link-row code {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: #9a9aa2;
-        font-size: 10px;
-      }
 
       .whatsapp-button {
         min-height: 38px;
@@ -3423,21 +3343,6 @@ function Styles() {
       }
 
       @media (max-width: 760px) {
-        .whatsapp-community-panel {
-          align-items: stretch;
-          flex-direction: column;
-        }
-
-        .whatsapp-community-actions {
-          width: 100%;
-          flex-direction: column;
-        }
-
-        .whatsapp-community-button,
-        .join-link-button {
-          width: 100%;
-        }
-
         .join-link-grid {
           grid-template-columns: 1fr;
         }
@@ -3473,6 +3378,10 @@ function Styles() {
           width: 100%;
         }
 
+        .batch-edit-whatsapp-links {
+          grid-template-columns: 1fr;
+        }
+
         .top-actions {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -3480,15 +3389,16 @@ function Styles() {
           gap: 8px;
         }
 
-        .top-actions .status-pill {
-          grid-column: 1 / -1;
-          width: 100%;
-          justify-content: center;
-        }
-
+        .top-actions .status-pill,
+        .top-actions .whatsapp-top-button,
         .top-actions .secondary-button,
         .top-actions .primary-button {
           width: 100%;
+        }
+
+        .top-actions .status-pill,
+        .top-actions .whatsapp-top-button {
+          justify-content: center;
         }
 
         .notice {
