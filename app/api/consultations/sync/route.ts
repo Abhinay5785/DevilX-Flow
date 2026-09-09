@@ -4,19 +4,53 @@ import { createClient } from "@supabase/supabase-js";
 export const dynamic = "force-dynamic";
 
 /* =========================================================
+   TYPES
+========================================================= */
+
+type Customer = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+};
+
+type ConsultationPayment = {
+  id: string;
+  payment_id: string | null;
+  amount: number | null;
+  status: string | null;
+  payment_time: string | null;
+  course: string | null;
+  payment_type: string | null;
+  customer_id: string | null;
+};
+
+type PendingRecordingConsultation = {
+  id: string;
+  student_name: string;
+  email: string | null;
+  booking_date: string;
+  booking_time: string;
+  meet_link: string | null;
+  source_event_id: string | null;
+  meet_code: string | null;
+  recording_link: string | null;
+};
+
+/* =========================================================
    HELPERS
 ========================================================= */
 
-function clean(value: unknown) {
+function clean(value: unknown): string {
   return String(value ?? "").trim();
 }
 
-function normalizePhone(value: unknown) {
+function normalizePhone(value: unknown): string {
   const digits = clean(value).replace(/\D/g, "");
   return digits ? `+${digits}` : "";
 }
 
-function parseDate(value: unknown) {
+function parseDate(value: unknown): string {
   const text = clean(value);
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
@@ -37,7 +71,7 @@ function parseDate(value: unknown) {
   }).format(date);
 }
 
-function parseTime(value: unknown) {
+function parseTime(value: unknown): string {
   const text = clean(value);
 
   if (/^\d{1,2}:\d{2}$/.test(text)) {
@@ -67,8 +101,11 @@ function parseTime(value: unknown) {
 ========================================================= */
 
 function getSupabase() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  const serviceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceRoleKey) {
     throw new Error(
@@ -76,19 +113,26 @@ function getSupabase() {
     );
   }
 
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
+  return createClient(
+    supabaseUrl,
+    serviceRoleKey,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    }
+  );
 }
 
 /* =========================================================
    AUTHENTICATION
 ========================================================= */
 
-function isAuthorized(request: NextRequest) {
+function isAuthorized(
+  request: NextRequest
+): boolean {
+
   const expectedSecret =
     process.env.CONSULTATION_SYNC_SECRET;
 
@@ -110,7 +154,8 @@ function isAuthorized(request: NextRequest) {
 async function findCustomerByEmail(
   supabase: ReturnType<typeof getSupabase>,
   email: string
-) {
+): Promise<Customer | null> {
+
   if (!email) {
     return null;
   }
@@ -118,26 +163,32 @@ async function findCustomerByEmail(
   const normalizedEmail =
     email.trim().toLowerCase();
 
-  /* Exact match */
+  /*
+   * First try exact lowercase email.
+   */
 
-  const { data, error } =
-    await supabase
-      .from("customers")
-      .select(
-        "id,name,email,phone"
-      )
-      .eq(
-        "email",
-        normalizedEmail
-      )
-      .limit(1)
-      .maybeSingle();
+  const {
+    data,
+    error,
+  } = await supabase
+    .from("customers")
+    .select(
+      "id,name,email,phone"
+    )
+    .eq(
+      "email",
+      normalizedEmail
+    )
+    .limit(1)
+    .maybeSingle();
 
   if (!error && data) {
-    return data;
+    return data as Customer;
   }
 
-  /* Case-insensitive fallback */
+  /*
+   * Fallback for capitalization differences.
+   */
 
   const {
     data: ilikeData,
@@ -163,7 +214,9 @@ async function findCustomerByEmail(
     return null;
   }
 
-  return ilikeData ?? null;
+  return ilikeData
+    ? (ilikeData as Customer)
+    : null;
 }
 
 /* =========================================================
@@ -173,10 +226,20 @@ async function findCustomerByEmail(
 async function findConsultationPayment(
   supabase: ReturnType<typeof getSupabase>,
   customerId: string
-) {
+): Promise<ConsultationPayment | null> {
+
   if (!customerId) {
     return null;
   }
+
+  /*
+   * Get latest customer payments.
+   *
+   * Consultation is identified by:
+   * course = consultation
+   * OR
+   * payment_type = consultation
+   */
 
   const {
     data,
@@ -207,11 +270,14 @@ async function findConsultationPayment(
     return null;
   }
 
-  const payments = data ?? [];
+  const payments =
+    (data ?? []) as ConsultationPayment[];
 
   const consultationPayment =
     payments.find(
-      (payment: any) => {
+      (
+        payment: ConsultationPayment
+      ) => {
 
         const course =
           clean(
@@ -230,24 +296,20 @@ async function findConsultationPayment(
       }
     );
 
-  return (
-    consultationPayment ??
-    null
-  );
+  return consultationPayment ?? null;
 }
 
 /* =========================================================
    GET
-
-   Supported actions:
-
-   - pending-recordings
-   - rematch-payments
 ========================================================= */
 
 export async function GET(
   request: NextRequest
 ) {
+
+  /*
+   * Authentication
+   */
 
   if (!isAuthorized(request)) {
     return NextResponse.json(
@@ -260,12 +322,19 @@ export async function GET(
     );
   }
 
+  /*
+   * Supabase
+   */
+
   let supabase;
 
   try {
+
     supabase =
       getSupabase();
+
   } catch (error) {
+
     return NextResponse.json(
       {
         error:
@@ -277,6 +346,7 @@ export async function GET(
         status: 500,
       }
     );
+
   }
 
   const action =
@@ -358,6 +428,7 @@ export async function GET(
       );
 
     if (error) {
+
       console.error(
         "Pending recording lookup failed:",
         error
@@ -372,31 +443,22 @@ export async function GET(
           status: 500,
         }
       );
+
     }
 
     return NextResponse.json({
       ok: true,
+
       consultations:
-        data ?? [],
+        (data ??
+          []) as PendingRecordingConsultation[],
+
     });
+
   }
 
   /* =======================================================
      REMATCH PAYMENTS
-
-     IMPORTANT:
-
-     A consultation is NOT dependent on payment.
-
-     If the person books first:
-       customer_id = NULL
-       payment_record_id = NULL
-       payment_status = Pending
-
-     If they pay later:
-       customer_id gets linked
-       payment gets linked
-       payment status gets updated
   ======================================================= */
 
   if (
@@ -431,6 +493,7 @@ export async function GET(
       .limit(200);
 
     if (error) {
+
       console.error(
         "Consultation rematch lookup failed:",
         error
@@ -445,6 +508,7 @@ export async function GET(
           status: 500,
         }
       );
+
     }
 
     let checked = 0;
@@ -496,9 +560,7 @@ export async function GET(
           error:
             customerUpdateError,
         } = await supabase
-          .from(
-            "consultations"
-          )
+          .from("consultations")
           .update({
 
             customer_id:
@@ -521,10 +583,12 @@ export async function GET(
         if (
           customerUpdateError
         ) {
+
           console.error(
             "Customer rematch update failed:",
             customerUpdateError
           );
+
         }
 
         continue;
@@ -534,7 +598,7 @@ export async function GET(
          PAYMENT FOUND
       =================================================== */
 
-      const paymentStatus =
+      const rawStatus =
         String(
           payment.status ??
             "pending"
@@ -544,9 +608,9 @@ export async function GET(
         "Pending";
 
       if (
-        paymentStatus ===
+        rawStatus ===
           "captured" ||
-        paymentStatus ===
+        rawStatus ===
           "paid"
       ) {
 
@@ -554,32 +618,29 @@ export async function GET(
           "Paid";
 
       } else if (
-        paymentStatus ===
+        rawStatus ===
         "failed"
       ) {
 
         normalizedPaymentStatus =
           "Failed";
+
       }
 
       /*
        * IMPORTANT:
        *
-       * Do NOT replace student_name
-       * with customer.name.
+       * Do NOT change student_name here.
        *
-       * The name entered in the Google
-       * Form should remain the consultation
-       * name.
+       * The Google Form name remains the
+       * consultation name.
        */
 
       const {
         error:
           updateError,
       } = await supabase
-        .from(
-          "consultations"
-        )
+        .from("consultations")
         .update({
 
           customer_id:
@@ -631,6 +692,7 @@ export async function GET(
         matchedPayments++;
 
       }
+
     }
 
     return NextResponse.json({
@@ -644,6 +706,7 @@ export async function GET(
       matchedPayments,
 
     });
+
   }
 
   return NextResponse.json(
@@ -659,16 +722,15 @@ export async function GET(
 
 /* =========================================================
    POST
-
-   Supported actions:
-
-   - new consultation
-   - recording update
 ========================================================= */
 
 export async function POST(
   request: NextRequest
 ) {
+
+  /*
+   * Authentication
+   */
 
   if (!isAuthorized(request)) {
 
@@ -683,6 +745,10 @@ export async function POST(
     );
 
   }
+
+  /*
+   * Supabase
+   */
 
   let supabase;
 
@@ -775,9 +841,7 @@ export async function POST(
       data,
       error,
     } = await supabase
-      .from(
-        "consultations"
-      )
+      .from("consultations")
       .update({
 
         recording_link:
@@ -874,8 +938,8 @@ export async function POST(
   /*
    * Google Calendar Event ID.
    *
-   * This is the unique identifier
-   * for the consultation.
+   * This is the unique identifier for
+   * the calendar consultation.
    */
 
   const sourceEventId =
@@ -886,9 +950,6 @@ export async function POST(
 
   /*
    * Google Meet conference code.
-   *
-   * Example:
-   * abc-defg-hij
    */
 
   const meetCode =
@@ -939,13 +1000,13 @@ export async function POST(
      FIND CUSTOMER
 
      IMPORTANT:
-
      Customer NOT FOUND is NOT an error.
 
-     Consultation must still be created.
+     Consultation is still created.
   ======================================================= */
 
-  let customer: any =
+  let customer:
+    Customer | null =
     null;
 
   if (email) {
@@ -960,11 +1021,10 @@ export async function POST(
 
   /* =======================================================
      FIND PAYMENT
-
-     Only possible when customer exists.
   ======================================================= */
 
-  let payment: any =
+  let payment:
+    ConsultationPayment | null =
     null;
 
   if (
@@ -1029,7 +1089,7 @@ export async function POST(
       sourceRow,
 
     /*
-     * NULL when customer doesn't exist.
+     * NULL when customer does not exist.
      */
 
     customer_id:
@@ -1037,7 +1097,7 @@ export async function POST(
       null,
 
     /*
-     * NULL when payment doesn't exist.
+     * NULL when payment does not exist.
      */
 
     payment_record_id:
@@ -1049,8 +1109,7 @@ export async function POST(
       null,
 
     /*
-     * Always preserve the name
-     * entered in the Google Form.
+     * Always preserve the Google Form name.
      */
 
     student_name:
@@ -1095,7 +1154,7 @@ export async function POST(
       meetLink,
 
     /*
-     * UNIQUE GOOGLE CALENDAR EVENT
+     * UNIQUE GOOGLE CALENDAR EVENT ID
      */
 
     source_event_id:
@@ -1107,11 +1166,6 @@ export async function POST(
 
     meet_code:
       meetCode,
-
-    /*
-     * New Google Form
-     * booking = Scheduled.
-     */
 
     status:
       "Scheduled",
@@ -1129,9 +1183,7 @@ export async function POST(
     data,
     error,
   } = await supabase
-    .from(
-      "consultations"
-    )
+    .from("consultations")
     .upsert(
       payload,
       {
@@ -1171,9 +1223,6 @@ export async function POST(
 
   /* =======================================================
      RESPONSE
-
-     Consultation creation NEVER fails just because
-     customer/payment is missing.
   ======================================================= */
 
   return NextResponse.json({
