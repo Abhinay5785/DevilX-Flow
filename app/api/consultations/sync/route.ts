@@ -89,12 +89,18 @@ function getSupabase() {
 ========================================================= */
 
 function isAuthorized(request: NextRequest) {
-  const expectedSecret = process.env.CONSULTATION_SYNC_SECRET;
-  const receivedSecret = request.headers.get(
-    "x-consultation-sync-secret"
-  );
+  const expectedSecret =
+    process.env.CONSULTATION_SYNC_SECRET;
 
-  return !!expectedSecret && receivedSecret === expectedSecret;
+  const receivedSecret =
+    request.headers.get(
+      "x-consultation-sync-secret"
+    );
+
+  return (
+    !!expectedSecret &&
+    receivedSecret === expectedSecret
+  );
 }
 
 /* =========================================================
@@ -109,30 +115,42 @@ async function findCustomerByEmail(
     return null;
   }
 
-  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedEmail =
+    email.trim().toLowerCase();
 
-  /*
-    First try exact lowercase email.
-  */
-  const { data, error } = await supabase
-    .from("customers")
-    .select("id,name,email,phone")
-    .eq("email", normalizedEmail)
-    .limit(1)
-    .maybeSingle();
+  /* Exact match */
+
+  const { data, error } =
+    await supabase
+      .from("customers")
+      .select(
+        "id,name,email,phone"
+      )
+      .eq(
+        "email",
+        normalizedEmail
+      )
+      .limit(1)
+      .maybeSingle();
 
   if (!error && data) {
     return data;
   }
 
-  /*
-    Fallback for databases where the stored email
-    has different capitalization.
-  */
-  const { data: ilikeData, error: ilikeError } = await supabase
+  /* Case-insensitive fallback */
+
+  const {
+    data: ilikeData,
+    error: ilikeError,
+  } = await supabase
     .from("customers")
-    .select("id,name,email,phone")
-    .ilike("email", normalizedEmail)
+    .select(
+      "id,name,email,phone"
+    )
+    .ilike(
+      "email",
+      normalizedEmail
+    )
     .limit(1)
     .maybeSingle();
 
@@ -141,6 +159,7 @@ async function findCustomerByEmail(
       "Consultation customer lookup failed:",
       ilikeError
     );
+
     return null;
   }
 
@@ -159,21 +178,24 @@ async function findConsultationPayment(
     return null;
   }
 
-  /*
-    Consultation payments are identified primarily by:
-      course = Consultation
-
-    We also keep payment_type as a fallback because
-    your existing payment data may use either field.
-  */
-
-  const { data, error } = await supabase
+  const {
+    data,
+    error,
+  } = await supabase
     .from("payments")
     .select(
       "id,payment_id,amount,status,payment_time,course,payment_type,customer_id"
     )
-    .eq("customer_id", customerId)
-    .order("payment_time", { ascending: false })
+    .eq(
+      "customer_id",
+      customerId
+    )
+    .order(
+      "payment_time",
+      {
+        ascending: false,
+      }
+    )
     .limit(50);
 
   if (error) {
@@ -181,42 +203,68 @@ async function findConsultationPayment(
       "Consultation payment lookup failed:",
       error
     );
+
     return null;
   }
 
   const payments = data ?? [];
 
-  const consultationPayment = payments.find((payment: any) => {
-    const course = clean(payment.course).toLowerCase();
-    const paymentType = clean(payment.payment_type).toLowerCase();
+  const consultationPayment =
+    payments.find(
+      (payment: any) => {
 
-    return (
-      course === "consultation" ||
-      paymentType === "consultation"
+        const course =
+          clean(
+            payment.course
+          ).toLowerCase();
+
+        const paymentType =
+          clean(
+            payment.payment_type
+          ).toLowerCase();
+
+        return (
+          course === "consultation" ||
+          paymentType === "consultation"
+        );
+      }
     );
-  });
 
-  return consultationPayment ?? null;
+  return (
+    consultationPayment ??
+    null
+  );
 }
 
 /* =========================================================
    GET
+
+   Supported actions:
+
    - pending-recordings
    - rematch-payments
 ========================================================= */
 
-export async function GET(request: NextRequest) {
+export async function GET(
+  request: NextRequest
+) {
+
   if (!isAuthorized(request)) {
     return NextResponse.json(
-      { error: "Unauthorized" },
-      { status: 401 }
+      {
+        error: "Unauthorized",
+      },
+      {
+        status: 401,
+      }
     );
   }
 
   let supabase;
 
   try {
-    supabase = getSupabase();
+    supabase =
+      getSupabase();
   } catch (error) {
     return NextResponse.json(
       {
@@ -225,46 +273,89 @@ export async function GET(request: NextRequest) {
             ? error.message
             : "Supabase configuration error.",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
   }
 
-  const action = clean(
-    request.nextUrl.searchParams.get("action")
-  );
+  const action =
+    clean(
+      request.nextUrl.searchParams.get(
+        "action"
+      )
+    );
 
   /* =======================================================
      PENDING RECORDINGS
   ======================================================= */
 
-  if (action === "pending-recordings") {
-    const now = new Date();
+  if (
+    action ===
+    "pending-recordings"
+  ) {
 
-    const yesterday = new Date(
-      now.getTime() - 48 * 60 * 60 * 1000
-    );
+    const now =
+      new Date();
 
-    const tomorrow = new Date(
-      now.getTime() + 24 * 60 * 60 * 1000
-    );
+    const yesterday =
+      new Date(
+        now.getTime() -
+        48 *
+          60 *
+          60 *
+          1000
+      );
 
-    const { data, error } = await supabase
+    const tomorrow =
+      new Date(
+        now.getTime() +
+        24 *
+          60 *
+          60 *
+          1000
+      );
+
+    const {
+      data,
+      error,
+    } = await supabase
       .from("consultations")
       .select(
-        "id,student_name,booking_date,booking_time,meet_link,source_event_id,meet_code,recording_link"
+        [
+          "id",
+          "student_name",
+          "email",
+          "booking_date",
+          "booking_time",
+          "meet_link",
+          "source_event_id",
+          "meet_code",
+          "recording_link",
+        ].join(",")
       )
-      .is("recording_link", null)
+      .is(
+        "recording_link",
+        null
+      )
       .gte(
         "booking_date",
-        yesterday.toISOString().slice(0, 10)
+        yesterday
+          .toISOString()
+          .slice(0, 10)
       )
       .lte(
         "booking_date",
-        tomorrow.toISOString().slice(0, 10)
+        tomorrow
+          .toISOString()
+          .slice(0, 10)
       )
-      .order("booking_date", {
-        ascending: true,
-      });
+      .order(
+        "booking_date",
+        {
+          ascending: true,
+        }
+      );
 
     if (error) {
       console.error(
@@ -273,41 +364,70 @@ export async function GET(request: NextRequest) {
       );
 
       return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
+        {
+          error:
+            error.message,
+        },
+        {
+          status: 500,
+        }
       );
     }
 
     return NextResponse.json({
       ok: true,
-      consultations: data ?? [],
+      consultations:
+        data ?? [],
     });
   }
 
   /* =======================================================
      REMATCH PAYMENTS
-     
-     This is important.
 
-     If someone books a consultation WITHOUT paying,
-     the consultation is still created.
+     IMPORTANT:
 
-     Later, when they pay, this endpoint can connect
-     the payment to the existing consultation.
+     A consultation is NOT dependent on payment.
+
+     If the person books first:
+       customer_id = NULL
+       payment_record_id = NULL
+       payment_status = Pending
+
+     If they pay later:
+       customer_id gets linked
+       payment gets linked
+       payment status gets updated
   ======================================================= */
 
-  if (action === "rematch-payments") {
-    const { data: consultations, error } = await supabase
+  if (
+    action ===
+    "rematch-payments"
+  ) {
+
+    const {
+      data: consultations,
+      error,
+    } = await supabase
       .from("consultations")
       .select(
-        "id,email,customer_id,payment_record_id,payment_id,payment_status"
+        [
+          "id",
+          "email",
+          "customer_id",
+          "payment_record_id",
+          "payment_id",
+          "payment_status",
+        ].join(",")
       )
       .or(
         "payment_record_id.is.null,payment_status.eq.Pending"
       )
-      .order("created_at", {
-        ascending: true,
-      })
+      .order(
+        "created_at",
+        {
+          ascending: true,
+        }
+      )
       .limit(200);
 
     if (error) {
@@ -317,8 +437,13 @@ export async function GET(request: NextRequest) {
       );
 
       return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
+        {
+          error:
+            error.message,
+        },
+        {
+          status: 500,
+        }
       );
     }
 
@@ -326,21 +451,27 @@ export async function GET(request: NextRequest) {
     let matchedCustomers = 0;
     let matchedPayments = 0;
 
-    for (const consultation of consultations ?? []) {
+    for (
+      const consultation
+      of consultations ?? []
+    ) {
+
       checked++;
 
-      const email = clean(
-        consultation.email
-      ).toLowerCase();
+      const email =
+        clean(
+          consultation.email
+        ).toLowerCase();
 
       if (!email) {
         continue;
       }
 
-      const customer = await findCustomerByEmail(
-        supabase,
-        email
-      );
+      const customer =
+        await findCustomerByEmail(
+          supabase,
+          email
+        );
 
       if (!customer) {
         continue;
@@ -354,24 +485,42 @@ export async function GET(request: NextRequest) {
           customer.id
         );
 
-      /*
-        Customer exists but payment still doesn't.
-        Link only the customer.
-      */
+      /* ===================================================
+         CUSTOMER FOUND
+         PAYMENT NOT FOUND
+      =================================================== */
+
       if (!payment) {
-        const { error: customerUpdateError } =
-          await supabase
-            .from("consultations")
-            .update({
-              customer_id: customer.id,
-              phone: normalizePhone(
+
+        const {
+          error:
+            customerUpdateError,
+        } = await supabase
+          .from(
+            "consultations"
+          )
+          .update({
+
+            customer_id:
+              customer.id,
+
+            phone:
+              normalizePhone(
                 customer.phone
               ),
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", consultation.id);
 
-        if (customerUpdateError) {
+            updated_at:
+              new Date().toISOString(),
+
+          })
+          .eq(
+            "id",
+            consultation.id
+          );
+
+        if (
+          customerUpdateError
+        ) {
           console.error(
             "Customer rematch update failed:",
             customerUpdateError
@@ -381,65 +530,119 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      /*
-        Payment found.
-        Link customer + payment.
-      */
+      /* ===================================================
+         PAYMENT FOUND
+      =================================================== */
 
       const paymentStatus =
-        String(payment.status ?? "pending")
-          .toLowerCase();
+        String(
+          payment.status ??
+            "pending"
+        ).toLowerCase();
 
-      const normalizedPaymentStatus =
-        paymentStatus === "captured" ||
-        paymentStatus === "paid"
-          ? "Paid"
-          : paymentStatus === "failed"
-            ? "Failed"
-            : "Pending";
+      let normalizedPaymentStatus =
+        "Pending";
 
-      const { error: updateError } =
-        await supabase
-          .from("consultations")
-          .update({
-            customer_id: customer.id,
-            payment_record_id: payment.id,
-            payment_id:
-              payment.payment_id ?? null,
-            student_name:
-              consultation.email &&
-              customer.name
-                ? customer.name
-                : undefined,
-            phone: normalizePhone(
+      if (
+        paymentStatus ===
+          "captured" ||
+        paymentStatus ===
+          "paid"
+      ) {
+
+        normalizedPaymentStatus =
+          "Paid";
+
+      } else if (
+        paymentStatus ===
+        "failed"
+      ) {
+
+        normalizedPaymentStatus =
+          "Failed";
+      }
+
+      /*
+       * IMPORTANT:
+       *
+       * Do NOT replace student_name
+       * with customer.name.
+       *
+       * The name entered in the Google
+       * Form should remain the consultation
+       * name.
+       */
+
+      const {
+        error:
+          updateError,
+      } = await supabase
+        .from(
+          "consultations"
+        )
+        .update({
+
+          customer_id:
+            customer.id,
+
+          payment_record_id:
+            payment.id,
+
+          payment_id:
+            payment.payment_id ??
+            null,
+
+          phone:
+            normalizePhone(
               customer.phone
             ),
-            payment_amount:
-              Number(payment.amount ?? 0),
-            payment_status:
-              normalizedPaymentStatus,
-            payment_time:
-              payment.payment_time ?? null,
-            updated_at:
-              new Date().toISOString(),
-          })
-          .eq("id", consultation.id);
+
+          payment_amount:
+            Number(
+              payment.amount ??
+                0
+            ),
+
+          payment_status:
+            normalizedPaymentStatus,
+
+          payment_time:
+            payment.payment_time ??
+            null,
+
+          updated_at:
+            new Date().toISOString(),
+
+        })
+        .eq(
+          "id",
+          consultation.id
+        );
 
       if (updateError) {
+
         console.error(
           "Payment rematch update failed:",
           updateError
         );
+
       } else {
+
         matchedPayments++;
+
       }
     }
 
     return NextResponse.json({
+
       ok: true,
+
       checked,
+
       matchedCustomers,
+
       matchedPayments,
+
     });
   }
 
@@ -448,29 +651,48 @@ export async function GET(request: NextRequest) {
       error:
         "Unsupported action. Use pending-recordings or rematch-payments.",
     },
-    { status: 400 }
+    {
+      status: 400,
+    }
   );
 }
 
 /* =========================================================
    POST
+
+   Supported actions:
+
    - new consultation
    - recording update
 ========================================================= */
 
-export async function POST(request: NextRequest) {
+export async function POST(
+  request: NextRequest
+) {
+
   if (!isAuthorized(request)) {
+
     return NextResponse.json(
-      { error: "Unauthorized" },
-      { status: 401 }
+      {
+        error:
+          "Unauthorized",
+      },
+      {
+        status: 401,
+      }
     );
+
   }
 
   let supabase;
 
   try {
-    supabase = getSupabase();
+
+    supabase =
+      getSupabase();
+
   } catch (error) {
+
     return NextResponse.json(
       {
         error:
@@ -478,159 +700,262 @@ export async function POST(request: NextRequest) {
             ? error.message
             : "Supabase configuration error.",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
+
   }
 
-  const action = clean(
-    request.nextUrl.searchParams.get("action")
-  );
+  const action =
+    clean(
+      request.nextUrl.searchParams.get(
+        "action"
+      )
+    );
 
   let body: any;
 
   try {
-    body = await request.json();
+
+    body =
+      await request.json();
+
   } catch {
+
     return NextResponse.json(
-      { error: "Invalid JSON body." },
-      { status: 400 }
+      {
+        error:
+          "Invalid JSON body.",
+      },
+      {
+        status: 400,
+      }
     );
+
   }
 
   /* =======================================================
      RECORDING UPDATE
   ======================================================= */
 
-  if (action === "recording") {
-    const consultationId = clean(
-      body.consultationId
-    );
+  if (
+    action ===
+    "recording"
+  ) {
 
-    const recordingLink = clean(
-      body.recordingLink
-    );
+    const consultationId =
+      clean(
+        body.consultationId
+      );
 
-    if (!consultationId || !recordingLink) {
+    const recordingLink =
+      clean(
+        body.recordingLink
+      );
+
+    if (
+      !consultationId ||
+      !recordingLink
+    ) {
+
       return NextResponse.json(
         {
           error:
             "consultationId and recordingLink are required.",
         },
-        { status: 400 }
+        {
+          status: 400,
+        }
       );
+
     }
 
-    const { data, error } = await supabase
-      .from("consultations")
+    const {
+      data,
+      error,
+    } = await supabase
+      .from(
+        "consultations"
+      )
       .update({
-        recording_link: recordingLink,
-        updated_at: new Date().toISOString(),
+
+        recording_link:
+          recordingLink,
+
+        updated_at:
+          new Date().toISOString(),
+
       })
-      .eq("id", consultationId)
+      .eq(
+        "id",
+        consultationId
+      )
       .select("*")
       .single();
 
     if (error) {
+
       console.error(
         "Recording link update failed:",
         error
       );
 
       return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
+        {
+          error:
+            error.message,
+        },
+        {
+          status: 500,
+        }
       );
+
     }
 
     return NextResponse.json({
+
       ok: true,
-      consultation: data,
+
+      consultation:
+        data,
+
     });
+
   }
 
   /* =======================================================
      NORMAL CONSULTATION CREATION
   ======================================================= */
 
-  const sourceSheetId = Number(
-    body.sourceSheetId
-  );
+  const sourceSheetId =
+    Number(
+      body.sourceSheetId
+    );
 
-  const sourceRow = Number(
-    body.sourceRow
-  );
+  const sourceRow =
+    Number(
+      body.sourceRow
+    );
 
-  const email = clean(body.email)
-    .toLowerCase();
+  const email =
+    clean(
+      body.email
+    ).toLowerCase();
 
   const studentName =
-    clean(body.name) ||
+    clean(
+      body.name
+    ) ||
     "Unknown student";
 
-  const bookingDate = parseDate(
-    body.bookingDate
-  );
+  const bookingDate =
+    parseDate(
+      body.bookingDate
+    );
 
-  const bookingTime = parseTime(
-    body.bookingTime
-  );
+  const bookingTime =
+    parseTime(
+      body.bookingTime
+    );
 
   const consultationType =
-    clean(body.consultationType) ||
+    clean(
+      body.consultationType
+    ) ||
     null;
 
   const meetLink =
-    clean(body.meetLink) ||
+    clean(
+      body.meetLink
+    ) ||
     null;
+
+  /*
+   * Google Calendar Event ID.
+   *
+   * This is the unique identifier
+   * for the consultation.
+   */
 
   const sourceEventId =
-    clean(body.sourceEventId) ||
+    clean(
+      body.sourceEventId
+    ) ||
     null;
 
+  /*
+   * Google Meet conference code.
+   *
+   * Example:
+   * abc-defg-hij
+   */
+
   const meetCode =
-    clean(body.meetCode) ||
+    clean(
+      body.meetCode
+    ) ||
     null;
 
   if (
-    !Number.isFinite(sourceSheetId) ||
-    !Number.isFinite(sourceRow)
+    !Number.isFinite(
+      sourceSheetId
+    ) ||
+    !Number.isFinite(
+      sourceRow
+    )
   ) {
+
     return NextResponse.json(
       {
         error:
           "sourceSheetId and sourceRow are required.",
       },
-      { status: 400 }
+      {
+        status: 400,
+      }
     );
+
   }
 
-  if (!bookingDate || !bookingTime) {
+  if (
+    !bookingDate ||
+    !bookingTime
+  ) {
+
     return NextResponse.json(
       {
         error:
           "A valid consultation date and time are required.",
       },
-      { status: 400 }
+      {
+        status: 400,
+      }
     );
+
   }
 
   /* =======================================================
      FIND CUSTOMER
 
      IMPORTANT:
+
      Customer NOT FOUND is NOT an error.
 
-     The consultation must still be created.
+     Consultation must still be created.
   ======================================================= */
 
-  let customer: any = null;
+  let customer: any =
+    null;
 
   if (email) {
+
     customer =
       await findCustomerByEmail(
         supabase,
         email
       );
+
   }
 
   /* =======================================================
@@ -639,37 +964,56 @@ export async function POST(request: NextRequest) {
      Only possible when customer exists.
   ======================================================= */
 
-  let payment: any = null;
+  let payment: any =
+    null;
 
-  if (customer?.id) {
+  if (
+    customer?.id
+  ) {
+
     payment =
       await findConsultationPayment(
         supabase,
         customer.id
       );
+
   }
 
   /* =======================================================
      PAYMENT STATUS
   ======================================================= */
 
-  let paymentStatus = "Pending";
+  let paymentStatus =
+    "Pending";
 
   if (payment) {
+
     const rawStatus =
-      String(payment.status ?? "pending")
-        .toLowerCase();
+      String(
+        payment.status ??
+          "pending"
+      ).toLowerCase();
 
     if (
-      rawStatus === "captured" ||
-      rawStatus === "paid"
+      rawStatus ===
+        "captured" ||
+      rawStatus ===
+        "paid"
     ) {
-      paymentStatus = "Paid";
+
+      paymentStatus =
+        "Paid";
+
     } else if (
-      rawStatus === "failed"
+      rawStatus ===
+      "failed"
     ) {
-      paymentStatus = "Failed";
+
+      paymentStatus =
+        "Failed";
+
     }
+
   }
 
   /* =======================================================
@@ -677,43 +1021,69 @@ export async function POST(request: NextRequest) {
   ======================================================= */
 
   const payload = {
-    source_sheet_id: sourceSheetId,
-    source_row: sourceRow,
+
+    source_sheet_id:
+      sourceSheetId,
+
+    source_row:
+      sourceRow,
 
     /*
-      NULL when the person is not yet in customers.
-    */
+     * NULL when customer doesn't exist.
+     */
+
     customer_id:
-      customer?.id ?? null,
+      customer?.id ??
+      null,
 
     /*
-      NULL when there is no payment.
-    */
+     * NULL when payment doesn't exist.
+     */
+
     payment_record_id:
-      payment?.id ?? null,
+      payment?.id ??
+      null,
 
     payment_id:
-      payment?.payment_id ?? null,
+      payment?.payment_id ??
+      null,
 
-    student_name: studentName,
+    /*
+     * Always preserve the name
+     * entered in the Google Form.
+     */
 
-    email: email || null,
+    student_name:
+      studentName,
 
-    phone: customer?.phone
-      ? normalizePhone(customer.phone)
-      : normalizePhone(body.phone),
+    email:
+      email ||
+      null,
+
+    phone:
+      customer?.phone
+        ? normalizePhone(
+            customer.phone
+          )
+        : normalizePhone(
+            body.phone
+          ),
 
     consultation_type:
       consultationType,
 
     payment_amount:
-      Number(payment?.amount ?? 0),
+      Number(
+        payment?.amount ??
+          0
+      ),
 
     payment_status:
       paymentStatus,
 
     payment_time:
-      payment?.payment_time ?? null,
+      payment?.payment_time ??
+      null,
 
     booking_date:
       bookingDate,
@@ -724,27 +1094,44 @@ export async function POST(request: NextRequest) {
     meet_link:
       meetLink,
 
+    /*
+     * UNIQUE GOOGLE CALENDAR EVENT
+     */
+
     source_event_id:
       sourceEventId,
+
+    /*
+     * GOOGLE MEET CODE
+     */
 
     meet_code:
       meetCode,
 
     /*
-      A form booking is a scheduled consultation.
-    */
-    status: "Scheduled",
+     * New Google Form
+     * booking = Scheduled.
+     */
+
+    status:
+      "Scheduled",
 
     updated_at:
       new Date().toISOString(),
+
   };
 
   /* =======================================================
      UPSERT CONSULTATION
   ======================================================= */
 
-  const { data, error } = await supabase
-    .from("consultations")
+  const {
+    data,
+    error,
+  } = await supabase
+    .from(
+      "consultations"
+    )
     .upsert(
       payload,
       {
@@ -756,6 +1143,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) {
+
     console.error(
       "Consultation sync failed:",
       error
@@ -763,22 +1151,33 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       {
-        error: error.message,
-        details: error.details ?? null,
-        hint: error.hint ?? null,
+        error:
+          error.message,
+
+        details:
+          error.details ??
+          null,
+
+        hint:
+          error.hint ??
+          null,
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
+
   }
 
   /* =======================================================
      RESPONSE
 
-     This tells Apps Script whether the customer/payment
-     was found, but NEVER prevents consultation creation.
+     Consultation creation NEVER fails just because
+     customer/payment is missing.
   ======================================================= */
 
   return NextResponse.json({
+
     ok: true,
 
     customerFound:
@@ -787,8 +1186,13 @@ export async function POST(request: NextRequest) {
     paymentFound:
       !!payment,
 
-    paymentStatus,
+    paymentStatus:
 
-    consultation: data,
+      paymentStatus,
+
+    consultation:
+      data,
+
   });
+
 }
