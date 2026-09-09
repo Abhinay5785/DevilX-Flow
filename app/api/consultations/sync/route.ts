@@ -37,6 +37,15 @@ type PendingRecordingConsultation = {
   recording_link: string | null;
 };
 
+type RematchConsultation = {
+  id: string;
+  email: string | null;
+  customer_id: string | null;
+  payment_record_id: string | null;
+  payment_id: string | null;
+  payment_status: string | null;
+};
+
 /* =========================================================
    HELPERS
 ========================================================= */
@@ -450,8 +459,7 @@ export async function GET(
       ok: true,
 
       consultations:
-        (data ??
-          []) as PendingRecordingConsultation[],
+        ((data ?? []) as unknown) as PendingRecordingConsultation[],
 
     });
 
@@ -511,13 +519,16 @@ export async function GET(
 
     }
 
+    const consultationRows =
+      ((consultations ?? []) as unknown) as RematchConsultation[];
+
     let checked = 0;
     let matchedCustomers = 0;
     let matchedPayments = 0;
 
     for (
       const consultation
-      of consultations ?? []
+      of consultationRows
     ) {
 
       checked++;
@@ -837,6 +848,87 @@ export async function POST(
 
     }
 
+    /*
+     * Check Supabase first.
+     *
+     * If a recording_link already exists, keep the existing
+     * link and do not overwrite it.
+     */
+    const {
+      data: existingConsultation,
+      error: existingConsultationError,
+    } = await supabase
+      .from("consultations")
+      .select(
+        "id,recording_link"
+      )
+      .eq(
+        "id",
+        consultationId
+      )
+      .maybeSingle();
+
+    if (existingConsultationError) {
+
+      console.error(
+        "Existing recording lookup failed:",
+        existingConsultationError
+      );
+
+      return NextResponse.json(
+        {
+          error:
+            existingConsultationError.message,
+        },
+        {
+          status: 500,
+        }
+      );
+
+    }
+
+    if (!existingConsultation) {
+
+      return NextResponse.json(
+        {
+          error:
+            "Consultation not found.",
+        },
+        {
+          status: 404,
+        }
+      );
+
+    }
+
+    /*
+     * Supabase already has a recording.
+     * Return it without replacing it.
+     */
+    if (
+      clean(
+        existingConsultation.recording_link
+      )
+    ) {
+
+      return NextResponse.json({
+
+        ok: true,
+
+        alreadyExists: true,
+
+        consultation:
+          existingConsultation,
+
+      });
+
+    }
+
+    /*
+     * Only write the new recording when recording_link
+     * is still NULL. This prevents duplicate/competing
+     * recording sync calls from overwriting each other.
+     */
     const {
       data,
       error,
@@ -855,8 +947,12 @@ export async function POST(
         "id",
         consultationId
       )
+      .is(
+        "recording_link",
+        null
+      )
       .select("*")
-      .single();
+      .maybeSingle();
 
     if (error) {
 
@@ -877,9 +973,58 @@ export async function POST(
 
     }
 
+    /*
+     * Another sync request may have written the link between
+     * our first lookup and this update. In that case fetch
+     * the current Supabase record and return it.
+     */
+    if (!data) {
+
+      const {
+        data: latestConsultation,
+        error: latestError,
+      } = await supabase
+        .from("consultations")
+        .select("*")
+        .eq(
+          "id",
+          consultationId
+        )
+        .maybeSingle();
+
+      if (latestError) {
+
+        return NextResponse.json(
+          {
+            error:
+              latestError.message,
+          },
+          {
+            status: 500,
+          }
+        );
+
+      }
+
+      return NextResponse.json({
+
+        ok: true,
+
+        alreadyExists:
+          !!latestConsultation?.recording_link,
+
+        consultation:
+          latestConsultation,
+
+      });
+
+    }
+
     return NextResponse.json({
 
       ok: true,
+
+      alreadyExists: false,
 
       consultation:
         data,
