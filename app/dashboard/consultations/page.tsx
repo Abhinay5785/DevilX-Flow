@@ -611,6 +611,29 @@ export default function ConsultationsPage() {
           font-size: 13px;
         }
 
+        .dashboard-back-button {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          height: 36px;
+          padding: 0 12px;
+          margin-bottom: 10px;
+          border: 1px solid rgba(255, 255, 255, 0.09);
+          border-radius: 8px;
+          background: #111317;
+          color: #aeb5be;
+          font-size: 11px;
+          font-weight: 650;
+          cursor: pointer;
+          transition: 0.15s ease;
+        }
+
+        .dashboard-back-button:hover {
+          background: rgba(255, 23, 68, 0.08);
+          border-color: rgba(255, 23, 68, 0.35);
+          color: #ffffff;
+        }
+
         .primary-button {
           height: 40px;
           padding: 0 15px;
@@ -2151,6 +2174,16 @@ export default function ConsultationsPage() {
         <div className="page-header">
 
           <div className="header-title">
+
+            <button
+              type="button"
+              className="dashboard-back-button"
+              onClick={() => {
+                window.location.href = "/dashboard";
+              }}
+            >
+              ← Dashboard
+            </button>
 
             <h1>
               Consultations

@@ -423,10 +423,10 @@ export default function DashboardPage() {
             <nav className="space-y-1">
               <SidebarItem icon={<LayoutDashboard size={17} />} label="Dashboard" href="/dashboard" active />
               <SidebarItem icon={<Users size={17} />} label="Customers" href="/dashboard/customers" />
+              <SidebarItem icon={<CalendarDays size={17} />} label="Consultations" href="/dashboard/consultations" />
               <SidebarItem icon={<CreditCard size={17} />} label="Courses" href="/dashboard/courses" />
               <SidebarItem icon={<CircleDollarSign size={17} />} label="Revenue" href="/dashboard/revenue" />
               <SidebarItem icon={<MessageCircle size={17} />} label="WhatsApp" href="/dashboard/whatsapp" />
-              <SidebarItem icon={<BarChart3 size={17} />} label="Analytics" href="/dashboard/analytics" />
             </nav>
 
             <div className="my-7 h-px bg-white/[0.06]" />
@@ -709,9 +709,10 @@ export default function DashboardPage() {
 
         {/* MOBILE BOTTOM NAV */}
         <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.08] bg-[#050505]/95 px-1.5 pb-[env(safe-area-inset-bottom)] pt-1.5 backdrop-blur-xl lg:hidden">
-          <div className="mx-auto grid max-w-[680px] grid-cols-6">
+          <div className="mx-auto grid max-w-[760px] grid-cols-7">
             <MobileNavItem icon={<LayoutDashboard size={17} />} label="Home" href="/dashboard" active />
             <MobileNavItem icon={<Users size={17} />} label="Customers" href="/dashboard/customers" />
+            <MobileNavItem icon={<CalendarDays size={17} />} label="Consultations" href="/dashboard/consultations" />
             <MobileNavItem icon={<CreditCard size={17} />} label="Courses" href="/dashboard/courses" />
             <MobileNavItem icon={<CircleDollarSign size={17} />} label="Revenue" href="/dashboard/revenue" />
             <MobileNavItem icon={<MessageCircle size={17} />} label="WhatsApp" href="/dashboard/whatsapp" />
