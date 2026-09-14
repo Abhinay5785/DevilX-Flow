@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
+
 /* =========================================================
    TYPES
 ========================================================= */
@@ -201,6 +202,7 @@ export default function ConsultationsPage() {
   const [browserNotificationsEnabled, setBrowserNotificationsEnabled] =
     useState(false);
 
+
   const perPage = 15;
 
   /* =======================================================
@@ -239,7 +241,11 @@ export default function ConsultationsPage() {
           paymentTime: String(row.payment_time || ""),
           bookingDate: String(row.booking_date || ""),
           bookingTime: String(row.booking_time || ""),
-          status: (["Pending", "Scheduled", "In Progress", "Completed", "Cancelled", "No Show"].includes(String(row.status)) ? String(row.status) : "Scheduled") as ConsultationStatus,
+          status: (row.recording_link
+            ? "Completed"
+            : (["Pending", "Scheduled", "In Progress", "Completed", "Cancelled", "No Show"].includes(String(row.status))
+              ? String(row.status)
+              : "Scheduled")) as ConsultationStatus,
           meetLink: String(row.meet_link || ""),
           recordingLink: row.recording_link ? String(row.recording_link) : null,
           notes: String(row.notes || ""),
@@ -250,6 +256,30 @@ export default function ConsultationsPage() {
 
         setConsultations(rows);
         setSelectedId((current) => current && rows.some((item) => item.id === current) ? current : rows[0]?.id || null);
+
+        // A consultation with a recording is considered completed.
+        // Keep Supabase in sync as well, so the status remains Completed after refresh.
+        const recordedConsultations = rows.filter(
+          (item) => item.recordingLink && item.status === "Completed"
+        );
+        const needsCompletionSync = recordedConsultations.filter(
+          (item) => {
+            const originalRow = (data || []).find((row: any) => String(row.id) === item.id);
+            return String(originalRow?.status || "") !== "Completed";
+          }
+        );
+
+        if (needsCompletionSync.length > 0) {
+          const completedAt = new Date().toISOString();
+          const { error: completionSyncError } = await supabase
+            .from("consultations")
+            .update({ status: "Completed", completed_at: completedAt })
+            .in("id", needsCompletionSync.map((item) => item.id));
+
+          if (completionSyncError) {
+            console.error("Failed to sync recorded consultations as completed:", completionSyncError);
+          }
+        }
       }
 
       setLoading(false);
@@ -1041,7 +1071,7 @@ export default function ConsultationsPage() {
         table {
           width: 100%;
           border-collapse: collapse;
-          min-width: 850px;
+          min-width: 980px;
         }
 
         th {
@@ -1173,6 +1203,31 @@ export default function ConsultationsPage() {
 
         .meet-link:hover {
           color: #ff8aa0;
+        }
+
+        .watch-recording-button {
+          height: 31px;
+          padding: 0 9px;
+          border: 1px solid rgba(255, 23, 68, .28);
+          border-radius: 7px;
+          background: rgba(255, 23, 68, .08);
+          color: #ff6683;
+          font-size: 10px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: .15s ease;
+        }
+
+        .watch-recording-button:hover {
+          background: rgba(255, 23, 68, .15);
+          border-color: rgba(255, 23, 68, .45);
+          color: #ff8aa0;
+        }
+
+        .no-recording {
+          color: #555c66;
+          font-size: 10px;
+          white-space: nowrap;
         }
 
         .pagination {
@@ -2609,8 +2664,7 @@ export default function ConsultationsPage() {
                           <th>
                             Meeting
                           </th>
-
-                        </tr>
+</tr>
 
                       </thead>
 
@@ -2749,6 +2803,27 @@ export default function ConsultationsPage() {
                                   </span>
                                 )}
 
+                              </td>
+                              <td>
+                                <div className="row-actions">
+                                  {consultation.recordingLink ? (
+                                    <button
+                                      type="button"
+                                      className="watch-recording-button"
+                                      title="Watch recording"
+                                      aria-label={`Watch recording for ${consultation.studentName}`}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        window.open(consultation.recordingLink!, "_blank", "noopener,noreferrer");
+                                      }}
+                                    >
+                                      ▶ Watch Recording
+                                    </button>
+                                  ) : (
+                                    <span className="no-recording">No recording</span>
+                                  )}
+                                
+                                </div>
                               </td>
 
                             </tr>

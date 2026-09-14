@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Check,
+  Copy,
   Edit3,
   Layers3,
   Loader2,
@@ -132,6 +133,8 @@ export default function BatchDetailsPage() {
   const [whatsappVariables, setWhatsappVariables] = useState<WhatsAppVariable[]>([]);
   const [whatsappResult, setWhatsappResult] = useState<{ sent: number; failed: number; skipped: number } | null>(null);
   const [whatsappError, setWhatsappError] = useState("");
+  const [copyingEmails, setCopyingEmails] = useState(false);
+  const [emailCopyMessage, setEmailCopyMessage] = useState("");
 
   const [name, setName] = useState("");
   const [advance, setAdvance] = useState("");
@@ -743,6 +746,33 @@ export default function BatchDetailsPage() {
     setWhatsappVariables((current) => current.filter((_, itemIndex) => itemIndex !== index));
   };
 
+  const copyAllEmails = async () => {
+    const emails = filteredStudents
+      .map((student) => student.email?.trim())
+      .filter((email): email is string => Boolean(email));
+
+    const uniqueEmails = [...new Set(emails)];
+
+    if (uniqueEmails.length === 0) {
+      setEmailCopyMessage("No email addresses available.");
+      return;
+    }
+
+    try {
+      setCopyingEmails(true);
+      setEmailCopyMessage("");
+      await navigator.clipboard.writeText(uniqueEmails.join(", "));
+      setEmailCopyMessage(
+        `${uniqueEmails.length} email${uniqueEmails.length === 1 ? "" : "s"} copied!`,
+      );
+      window.setTimeout(() => setEmailCopyMessage(""), 2500);
+    } catch {
+      setEmailCopyMessage("Could not copy emails. Please try again.");
+    } finally {
+      setCopyingEmails(false);
+    }
+  };
+
   const sendWhatsAppMessages = async () => {
     const templateName = whatsappTemplateName.trim();
     const languageCode = whatsappLanguageCode.trim() || "en_US";
@@ -1150,16 +1180,42 @@ export default function BatchDetailsPage() {
                   <p>Select a payment status to filter the students you want to contact.</p>
                 </div>
 
-                <button
-                  type="button"
-                  className="whatsapp-button"
-                  onClick={openWhatsApp}
-                  disabled={filteredStudents.length === 0}
-                >
-                  <MessageCircle size={17} />
-                  <span>Send WhatsApp</span>
-                  <b>{filteredStudents.length}</b>
-                </button>
+                <div className="student-contact-actions">
+                  <button
+                    type="button"
+                    className="copy-emails-button"
+                    onClick={copyAllEmails}
+                    disabled={
+                      filteredStudents.every((student) => !student.email?.trim()) ||
+                      copyingEmails
+                    }
+                  >
+                    {copyingEmails ? <Loader2 className="spin" size={17} /> : <Copy size={17} />}
+                    <span>
+                      {copyingEmails
+                        ? "Copying..."
+                        : emailCopyMessage || "Copy Emails"}
+                    </span>
+                    <b>
+                      {new Set(
+                        filteredStudents
+                          .map((student) => student.email?.trim())
+                          .filter(Boolean),
+                      ).size}
+                    </b>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="whatsapp-button"
+                    onClick={openWhatsApp}
+                    disabled={filteredStudents.length === 0}
+                  >
+                    <MessageCircle size={17} />
+                    <span>Send WhatsApp</span>
+                    <b>{filteredStudents.length}</b>
+                  </button>
+                </div>
               </div>
 
               <div className="filter-row">
@@ -3099,6 +3155,54 @@ function Styles() {
       }
 
 
+      .student-contact-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .copy-emails-button {
+        min-height: 39px;
+        padding: 0 13px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        border: 1px solid #29292d;
+        border-radius: 8px;
+        color: #d8d8dc;
+        background: #101011;
+        font-size: 11px;
+        font-weight: 850;
+        transition: 0.16s ease;
+      }
+
+      .copy-emails-button:hover:not(:disabled) {
+        color: #fff;
+        border-color: #44444a;
+        background: #171719;
+        transform: translateY(-1px);
+      }
+
+      .copy-emails-button:disabled {
+        opacity: .45;
+        cursor: not-allowed;
+      }
+
+      .copy-emails-button b {
+        min-width: 20px;
+        height: 18px;
+        padding: 0 5px;
+        display: inline-grid;
+        place-items: center;
+        border-radius: 5px;
+        color: #aaaab2;
+        background: #1b1b1e;
+        font-size: 10px;
+      }
+
       .whatsapp-button {
         min-height: 38px;
         padding: 0 12px;
@@ -3523,6 +3627,15 @@ function Styles() {
           align-items: stretch;
         }
 
+        .student-contact-actions {
+          width: 100%;
+          justify-content: stretch;
+        }
+
+        .student-contact-actions > button {
+          flex: 1 1 0;
+        }
+
         .filter-heading {
           gap: 8px;
           flex-wrap: wrap;
@@ -3646,6 +3759,14 @@ function Styles() {
 
         .filter-row {
           grid-template-columns: 1fr;
+        }
+
+        .student-contact-actions {
+          flex-direction: column;
+        }
+
+        .student-contact-actions > button {
+          width: 100%;
         }
 
         .filter {

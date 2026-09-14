@@ -11,11 +11,11 @@ import {
   CircleDollarSign,
   CreditCard,
   LayoutDashboard,
+  Link2,
   MessageCircle,
   MoreHorizontal,
   Settings,
   Users,
-  Workflow,
   Zap,
 } from "lucide-react";
 
@@ -427,6 +427,7 @@ export default function DashboardPage() {
               <SidebarItem icon={<CreditCard size={17} />} label="Courses" href="/dashboard/courses" />
               <SidebarItem icon={<CircleDollarSign size={17} />} label="Revenue" href="/dashboard/revenue" />
               <SidebarItem icon={<MessageCircle size={17} />} label="WhatsApp" href="/dashboard/whatsapp" />
+              <SidebarItem icon={<Link2 size={17} />} label="Quick Links" href="/dashboard/quick-links" />
             </nav>
 
             <div className="my-7 h-px bg-white/[0.06]" />
@@ -476,13 +477,22 @@ export default function DashboardPage() {
               </div>
             </Link>
 
-            <Link
-              href="/dashboard/settings"
-              aria-label="Settings"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.02] text-slate-400 transition hover:bg-white/[0.06] hover:text-white"
-            >
-              <Settings size={16} />
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/dashboard/quick-links"
+                aria-label="Quick Links"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.02] text-slate-400 transition hover:bg-white/[0.06] hover:text-white"
+              >
+                <Link2 size={16} />
+              </Link>
+              <Link
+                href="/dashboard/settings"
+                aria-label="Settings"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.02] text-slate-400 transition hover:bg-white/[0.06] hover:text-white"
+              >
+                <Settings size={16} />
+              </Link>
+            </div>
           </header>
 
           <div className="mx-auto w-full max-w-[1800px] px-3 py-4 sm:px-5 sm:py-6 md:px-7 lg:px-9">

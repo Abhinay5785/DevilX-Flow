@@ -95,6 +95,44 @@ function normalizeName(value: string) {
     .toLowerCase();
 }
 
+/*
+ * Keep manual-payment customer matching consistent with Excel imports:
+ * phone -> email -> name + city.
+ */
+function normalizePhone(value: unknown) {
+  const original = String(value ?? "").trim();
+
+  if (!original) return "";
+
+  const digits = original.replace(/\D/g, "");
+
+  if (!digits) return "";
+
+  // Indian 10-digit number.
+  if (digits.length === 10 && /^[6-9]/.test(digits)) {
+    return `+91${digits}`;
+  }
+
+  // Indian number already containing 91.
+  if (digits.length === 12 && digits.startsWith("91")) {
+    return `+${digits}`;
+  }
+
+  // International number: do not add +91.
+  if (original.startsWith("+")) {
+    return `+${digits}`;
+  }
+
+  return original;
+}
+
+function normalizeValue(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
 function normalizeCourse(value: string | null | undefined) {
   const course = String(value ?? "")
     .trim()
@@ -1149,9 +1187,14 @@ export default function CustomersPage() {
   /*
    * MANUAL CUSTOMER + PAYMENT
    *
-   * This flow intentionally collects the customer information manually.
-   * It creates a new customer first and then creates the payment linked to
-   * that customer. The normal Add Customer flow remains unchanged.
+   * Manual payments use the same customer matching strategy as Excel imports:
+   *   1. normalized phone
+   *   2. normalized email
+   *   3. normalized name + city
+   *
+   * If a customer is found, the payment is linked to that existing customer.
+   * Only missing customer profile fields are filled in; payment course/batch
+   * remain transaction-specific.
    */
 
   function openManualPayment() {
@@ -1197,8 +1240,13 @@ export default function CustomersPage() {
       return;
     }
 
-    if (manualPaymentForm.status === "failed" && !manualPaymentForm.failed_reason.trim()) {
-      setManualPaymentError("Please enter the failed reason for a failed payment.");
+    if (
+      manualPaymentForm.status === "failed" &&
+      !manualPaymentForm.failed_reason.trim()
+    ) {
+      setManualPaymentError(
+        "Please enter the failed reason for a failed payment.",
+      );
       return;
     }
 
@@ -1207,36 +1255,175 @@ export default function CustomersPage() {
         ? ""
         : manualPaymentForm.batch.trim();
 
+    const name = manualPaymentForm.name.trim();
+    const age = manualPaymentForm.age
+      ? Number(manualPaymentForm.age)
+      : null;
+    const city = manualPaymentForm.city.trim();
+    const phone = normalizePhone(manualPaymentForm.phone);
+    const email = manualPaymentForm.email.trim();
+
+    if (manualPaymentForm.age && !Number.isFinite(age)) {
+      setManualPaymentError("Enter a valid age.");
+      return;
+    }
+
     setManualPaymentSaving(true);
     setManualPaymentError("");
 
     try {
-      const customerPayload = {
-        name: manualPaymentForm.name.trim(),
-        age: manualPaymentForm.age ? Number(manualPaymentForm.age) : null,
-        city: manualPaymentForm.city.trim() || null,
-        phone: manualPaymentForm.phone.trim() || null,
-        email: manualPaymentForm.email.trim() || null,
-        course: normalizedCourse || null,
-        batch: normalizedBatch || null,
-        custom_fields: {},
-        updated_at: new Date().toISOString(),
-      };
-
-      const { data: newCustomer, error: customerError } = await supabase
+      /*
+       * Load existing customers and use the same matching order as the
+       * Excel import page: phone -> email -> name + city.
+       */
+      const {
+        data: existingCustomers,
+        error: customerLoadError,
+      } = await supabase
         .from("customers")
-        .insert(customerPayload)
-        .select("id")
-        .single();
+        .select(`
+          id,
+          name,
+          age,
+          city,
+          phone,
+          email,
+          course,
+          batch,
+          custom_fields
+        `);
 
-      if (customerError) {
-        throw customerError;
+      if (customerLoadError) {
+        throw customerLoadError;
       }
 
+      const customerCache = (existingCustomers || []) as Array<{
+        id: string;
+        name: string;
+        age: number | null;
+        city: string | null;
+        phone: string | null;
+        email: string | null;
+        course: string | null;
+        batch: string | null;
+        custom_fields: Record<string, unknown> | null;
+      }>;
+
+      let customer = phone
+        ? customerCache.find(
+            (item) => normalizePhone(item.phone) === phone,
+          )
+        : undefined;
+
+      if (!customer && email) {
+        customer = customerCache.find(
+          (item) =>
+            normalizeValue(item.email) === normalizeValue(email),
+        );
+      }
+
+      if (!customer) {
+        customer = customerCache.find((item) => {
+          const sameName =
+            normalizeValue(item.name) === normalizeValue(name);
+
+          const sameCity =
+            !city ||
+            !item.city ||
+            normalizeValue(item.city) === normalizeValue(city);
+
+          return sameName && sameCity;
+        });
+      }
+
+      if (!customer) {
+        const { data: newCustomer, error: createCustomerError } =
+          await supabase
+            .from("customers")
+            .insert({
+              name,
+              age,
+              city: city || null,
+              phone: phone || null,
+              email: email || null,
+              course: normalizedCourse || null,
+              batch: normalizedBatch || null,
+              custom_fields: {},
+            })
+            .select(`
+              id,
+              name,
+              age,
+              city,
+              phone,
+              email,
+              course,
+              batch,
+              custom_fields
+            `)
+            .single();
+
+        if (createCustomerError) {
+          throw createCustomerError;
+        }
+
+        customer = newCustomer;
+      } else {
+        /*
+         * Existing customer found: fill only missing profile fields.
+         * Do not overwrite existing customer information with a payment's
+         * course/batch, because those values belong to the transaction.
+         */
+        const updateData: Record<string, unknown> = {};
+
+        if (age !== null && customer.age === null) {
+          updateData.age = age;
+        }
+
+        if (city && !customer.city) {
+          updateData.city = city;
+        }
+
+        if (phone && !customer.phone) {
+          updateData.phone = phone;
+        }
+
+        if (email && !customer.email) {
+          updateData.email = email;
+        }
+
+        if (normalizedCourse && !customer.course) {
+          updateData.course = normalizedCourse;
+        }
+
+        if (normalizedBatch && !customer.batch) {
+          updateData.batch = normalizedBatch;
+        }
+
+        if (Object.keys(updateData).length > 0) {
+          const { error: updateCustomerError } = await supabase
+            .from("customers")
+            .update({
+              ...updateData,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", customer.id);
+
+          if (updateCustomerError) {
+            throw updateCustomerError;
+          }
+        }
+      }
+
+      /*
+       * Link the payment to the matched/new customer.
+       * Course and batch are stored on the payment so historical payments
+       * can belong to different courses/batches for the same customer.
+       */
       const { error: paymentError } = await supabase
         .from("payments")
         .insert({
-          customer_id: newCustomer.id,
+          customer_id: customer.id,
           payment_id: manualPaymentForm.payment_id.trim() || null,
           amount,
           status: manualPaymentForm.status || "captured",
@@ -2254,9 +2441,9 @@ export default function CustomersPage() {
             <div className="modal-header">
               <div>
                 <span>MANUAL ENTRY</span>
-                <h2>Add customer & payment</h2>
+                <h2>Add payment</h2>
                 <p>
-                  Enter the customer details and payment details manually. A new customer and payment record will be created together.
+                  Enter the customer and payment details. Existing customers are matched by phone, email, then name + city; a new customer is created only when no match is found.
                 </p>
               </div>
 
@@ -2433,7 +2620,7 @@ export default function CustomersPage() {
                 onClick={saveManualPayment}
               >
                 <Plus size={16} />
-                {manualPaymentSaving ? "Saving..." : "Add customer & payment"}
+                {manualPaymentSaving ? "Saving..." : "Add payment"}
               </button>
             </div>
           </div>
