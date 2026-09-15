@@ -2701,35 +2701,9 @@ function EmailAutomationContent() {
      Gmail
   --------------------------------------------- */
 
-  const connectGmail =
-    async () => {
-      try {
-        const response =
-          await fetch(
-            "/api/gmail/connect"
-          );
-
-        if (
-          response.redirected
-        ) {
-          window.location.href =
-            response.url;
-          return;
-        }
-
-        const data =
-          await response.json();
-
-        if (data.url) {
-          window.location.href =
-            data.url;
-        }
-      } catch {
-        setMessage(
-          "Unable to start Gmail connection."
-        );
-      }
-    };
+  const connectGmail = () => {
+    window.location.href = "/api/gmail/connect";
+  };
 
   /* ---------------------------------------------
      Save / Update
