@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import {
   ArrowLeft,
   ChevronDown,
@@ -1860,7 +1860,7 @@ const DEFAULT_BLOCKS: EmailBlock[] = [
    Page
 ------------------------------------------------------- */
 
-export default function EmailAutomationPage() {
+function EmailAutomationContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editingId = searchParams.get("id");
@@ -3548,5 +3548,19 @@ export default function EmailAutomationPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function EmailAutomationPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-black text-white flex items-center justify-center">
+          Loading...
+        </div>
+      }
+    >
+      <EmailAutomationContent />
+    </Suspense>
   );
 }
