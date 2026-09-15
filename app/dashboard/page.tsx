@@ -15,6 +15,10 @@ import {
   MessageCircle,
   MoreHorizontal,
   Settings,
+  X,
+  Check,
+  Clock3,
+  XCircle,
   Users,
   Zap,
 } from "lucide-react";
@@ -30,6 +34,7 @@ type DashboardStats = {
 
 type RecentPayment = {
   id: string;
+  customerId: string;
   paymentId?: string | null;
   name: string;
   amount: number;
@@ -37,6 +42,7 @@ type RecentPayment = {
   course?: string | null;
   batch?: string | null;
   paymentTime: string;
+  automationStatus: "sent" | "pending" | "processing" | "failed" | "cancelled" | "not_triggered";
 };
 
 function normalizeCourse(value: unknown) {
@@ -56,6 +62,29 @@ function getDisplayBatch(course?: string | null, batch?: string | null) {
 
   return String(batch ?? "").trim() || "Not assigned";
 }
+
+type CustomerPayment = {
+  id: string;
+  amount: number;
+  status: string;
+  payment_time: string;
+  failed_reason: string | null;
+  course: string | null;
+  batch: string | null;
+};
+
+type SelectedCustomer = {
+  id: string;
+  name: string;
+  age: number | null;
+  city: string | null;
+  phone: string | null;
+  email: string | null;
+  course: string | null;
+  batch: string | null;
+  custom_fields: Record<string, unknown> | null;
+  payments: CustomerPayment[];
+};
 
 const EMPTY_STATS: DashboardStats = {
   totalCustomers: 0,
@@ -78,6 +107,51 @@ export default function DashboardPage() {
 
   const [recentPayments, setRecentPayments] =
     useState<RecentPayment[]>([]);
+
+  const [selectedCustomer, setSelectedCustomer] =
+    useState<SelectedCustomer | null>(null);
+  const [customerModalLoading, setCustomerModalLoading] =
+    useState(false);
+
+  async function openCustomerDetails(customerId: string) {
+    if (!customerId) return;
+
+    setCustomerModalLoading(true);
+
+    const { data, error } = await supabase
+      .from("customers")
+      .select(`
+        id,
+        name,
+        age,
+        city,
+        phone,
+        email,
+        course,
+        batch,
+        custom_fields,
+        payments (
+          id,
+          amount,
+          status,
+          payment_time,
+          failed_reason,
+          course,
+          batch
+        )
+      `)
+      .eq("id", customerId)
+      .single();
+
+    setCustomerModalLoading(false);
+
+    if (error || !data) {
+      console.error("Failed to load customer details:", error);
+      return;
+    }
+
+    setSelectedCustomer(data as SelectedCustomer);
+  }
 
   // Render the date only after hydration so the server and browser
   // cannot disagree when the request crosses midnight/timezones.
@@ -291,6 +365,48 @@ export default function DashboardPage() {
       } else {
         const paymentRows = paymentsResult.data || [];
 
+        // Load automation jobs for the recent payments so the dashboard
+        // can show whether an email automation was sent, is pending,
+        // processing, failed, or was not triggered.
+        const paymentIds = paymentRows.map((payment) => String(payment.id));
+
+        const { data: automationJobs, error: automationJobsError } =
+          paymentIds.length > 0
+            ? await supabase
+                .from("automation_jobs")
+                .select(
+                  "payment_id,status,updated_at,send_at,sent_at,error_message",
+                )
+                .in("payment_id", paymentIds)
+                .order("updated_at", { ascending: false })
+            : { data: [], error: null };
+
+        if (automationJobsError) {
+          console.error(
+            "Failed to load recent payment automation status:",
+            automationJobsError,
+          );
+        }
+
+        // Keep the newest automation job for each payment.
+        const latestAutomationByPayment = new Map<
+          string,
+          {
+            status: string;
+          }
+        >();
+
+        for (const job of automationJobs || []) {
+          const paymentId = String(job.payment_id || "");
+          if (!paymentId || latestAutomationByPayment.has(paymentId)) {
+            continue;
+          }
+
+          latestAutomationByPayment.set(paymentId, {
+            status: String(job.status || "").toLowerCase(),
+          });
+        }
+
         setRecentPayments(
           paymentRows.map((payment) => {
             const customer = Array.isArray(payment.customers)
@@ -299,6 +415,7 @@ export default function DashboardPage() {
 
             return {
               id: String(payment.id),
+              customerId: String(payment.customer_id),
               paymentId: payment.payment_id,
               name: String(
                 customer?.name || "Unknown customer",
@@ -311,6 +428,23 @@ export default function DashboardPage() {
                 payment.payment_time ||
                   new Date().toISOString(),
               ),
+              automationStatus:
+                latestAutomationByPayment.get(String(payment.id))
+                  ?.status === "sent"
+                  ? "sent"
+                  : latestAutomationByPayment.get(String(payment.id))
+                        ?.status === "pending"
+                    ? "pending"
+                    : latestAutomationByPayment.get(String(payment.id))
+                          ?.status === "processing"
+                      ? "processing"
+                      : latestAutomationByPayment.get(String(payment.id))
+                            ?.status === "failed"
+                        ? "failed"
+                        : latestAutomationByPayment.get(String(payment.id))
+                              ?.status === "cancelled"
+                          ? "cancelled"
+                          : "not_triggered",
             };
           }),
         );
@@ -351,10 +485,24 @@ export default function DashboardPage() {
       )
       .subscribe();
 
+    const automationJobsChannel = supabase
+      .channel("dashboard-automation-jobs-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "automation_jobs",
+        },
+        refreshDashboard,
+      )
+      .subscribe();
+
     return () => {
       cancelled = true;
       supabase.removeChannel(customersChannel);
       supabase.removeChannel(paymentsChannel);
+      supabase.removeChannel(automationJobsChannel);
     };
   }, []);
 
@@ -426,7 +574,7 @@ export default function DashboardPage() {
               <SidebarItem icon={<CalendarDays size={17} />} label="Consultations" href="/dashboard/consultations" />
               <SidebarItem icon={<CreditCard size={17} />} label="Courses" href="/dashboard/courses" />
               <SidebarItem icon={<CircleDollarSign size={17} />} label="Revenue" href="/dashboard/revenue" />
-              <SidebarItem icon={<MessageCircle size={17} />} label="WhatsApp" href="/dashboard/whatsapp" />
+              <SidebarItem icon={<Zap size={17} />} label="Automations" href="/dashboard/automations" />
               <SidebarItem icon={<Link2 size={17} />} label="Quick Links" href="/dashboard/quick-links" />
             </nav>
 
@@ -595,13 +743,14 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="px-2.5 pb-3 pt-2 sm:px-4 md:px-5">
-                  <div className="hidden grid-cols-[minmax(130px,1.3fr)_minmax(80px,0.8fr)_80px_90px_88px_70px_28px] gap-3 rounded-lg bg-[#111317] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-600 md:grid">
+                  <div className="hidden grid-cols-[minmax(130px,1.3fr)_minmax(80px,0.8fr)_80px_90px_88px_70px_90px_28px] gap-3 rounded-lg bg-[#111317] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-600 md:grid">
                     <span>Student</span>
                     <span>Course</span>
                     <span>Batch</span>
                     <span>Amount</span>
                     <span>Status</span>
                     <span>Time</span>
+                    <span>Automation</span>
                     <span />
                   </div>
 
@@ -623,7 +772,7 @@ export default function DashboardPage() {
                         return (
                           <div
                             key={payment.id}
-                            className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-2.5 py-3.5 transition hover:bg-white/[0.025] sm:px-3 md:grid-cols-[minmax(130px,1.3fr)_minmax(80px,0.8fr)_80px_90px_88px_70px_28px] md:py-3"
+                            className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-2.5 py-3.5 transition hover:bg-white/[0.025] sm:px-3 md:grid-cols-[minmax(130px,1.3fr)_minmax(80px,0.8fr)_80px_90px_88px_70px_90px_28px] md:py-3"
                           >
                             <div className="flex min-w-0 items-center gap-2.5">
                               <div
@@ -699,9 +848,14 @@ export default function DashboardPage() {
                             <span className="hidden text-[10px] text-slate-500 md:block">
                               {formatRelativeTime(payment.paymentTime)}
                             </span>
+
+                            <AutomationStatus status={payment.automationStatus} />
+
                             <button
                               type="button"
-                              aria-label={`More options for ${payment.name}`}
+                              aria-label={`View details for ${payment.name}`}
+                              title="View customer details"
+                              onClick={() => openCustomerDetails(payment.customerId)}
                               className="hidden h-7 w-7 items-center justify-center rounded-lg text-slate-600 transition hover:bg-white/[0.05] hover:text-slate-300 md:flex"
                             >
                               <MoreHorizontal size={15} />
@@ -717,6 +871,140 @@ export default function DashboardPage() {
           </div>
         </main>
 
+        {/* CUSTOMER DETAILS MODAL — same structure as Customers page */}
+        {(customerModalLoading || selectedCustomer) && (
+          <div
+            className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/[0.78] p-3 backdrop-blur-[9px] sm:p-5"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget && !customerModalLoading) {
+                setSelectedCustomer(null);
+              }
+            }}
+          >
+            <div className="w-full max-w-[720px] max-h-[calc(100vh-24px)] overflow-auto rounded-xl border border-[#29292d] bg-[#09090a] shadow-[0_30px_90px_rgba(0,0,0,.65)]">
+              {customerModalLoading ? (
+                <div className="flex min-h-[220px] items-center justify-center text-sm text-slate-500">
+                  Loading customer details...
+                </div>
+              ) : selectedCustomer ? (
+                <>
+                  <div className="flex items-start justify-between gap-4 border-b border-[#202023] px-5 py-5 sm:px-[22px]">
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#71717a]">
+                        CUSTOMER
+                      </span>
+                      <h2 className="mt-1 text-xl font-bold tracking-tight text-white">
+                        {selectedCustomer.name}
+                      </h2>
+                      <p className="mt-1 truncate text-xs text-[#71717a]">
+                        {selectedCustomer.email || selectedCustomer.phone || "Customer details"}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#71717a] transition hover:bg-white/[0.06] hover:text-white"
+                      onClick={() => setSelectedCustomer(null)}
+                      aria-label="Close customer details"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  <div className="p-5 sm:p-[22px]">
+                    <div className="grid grid-cols-1 gap-px overflow-hidden rounded-[9px] border border-[#202023] bg-[#202023] sm:grid-cols-2">
+                      {[
+                        ["Age", selectedCustomer.age ?? "—"],
+                        ["City", selectedCustomer.city || "—"],
+                        ["Phone", selectedCustomer.phone || "—"],
+                        ["Email", selectedCustomer.email || "—"],
+                        [
+                          "Courses",
+                          Array.from(new Set((selectedCustomer.payments || []).map((payment) => normalizeCourse(payment.course)).filter(Boolean))).join(", ") || normalizeCourse(selectedCustomer.course) || "—",
+                        ],
+                        [
+                          "Batches",
+                          Array.from(new Set((selectedCustomer.payments || []).map((payment) => getDisplayBatch(payment.course, payment.batch)).filter(Boolean))).join(", ") || (normalizeCourse(selectedCustomer.course).toLowerCase() === "consultation" ? "No Batch" : selectedCustomer.batch || "—"),
+                        ],
+                        ["Payments", selectedCustomer.payments.length],
+                      ].map(([label, value]) => (
+                        <div key={String(label)} className="flex min-h-[75px] flex-col justify-center gap-1.5 bg-[#0c0c0d] p-[13px]">
+                          <span className="text-[10px] font-semibold uppercase tracking-[0.4px] text-[#71717a]">
+                            {label}
+                          </span>
+                          <strong className="break-words text-[13px] font-semibold text-[#e4e4e7]">
+                            {String(value)}
+                          </strong>
+                        </div>
+                      ))}
+                    </div>
+
+                    {Object.keys(selectedCustomer.custom_fields || {}).length > 0 && (
+                      <div className="mt-[22px] border-t border-[#202023] pt-5">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <h3 className="text-sm font-bold text-slate-100">Additional information</h3>
+                          <span className="text-[10px] uppercase tracking-[0.08em] text-[#71717a]">Dynamic fields</span>
+                        </div>
+                        <div className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-[#202023] bg-[#202023] sm:grid-cols-2">
+                          {Object.entries(selectedCustomer.custom_fields || {}).map(([key, value]) => (
+                            <div key={key} className="bg-[#0c0c0d] p-3">
+                              <span className="block text-[10px] font-semibold uppercase tracking-[0.4px] text-[#71717a]">{key}</span>
+                              <strong className="mt-1 block break-words text-[13px] font-semibold text-[#e4e4e7]">{String(value ?? "—") || "—"}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="mt-[22px] border-t border-[#202023] pt-5">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <h3 className="text-sm font-bold text-slate-100">Payment history</h3>
+                        <span className="text-[11px] text-[#71717a]">{selectedCustomer.payments.length} payments</span>
+                      </div>
+
+                      {selectedCustomer.payments.length === 0 ? (
+                        <div className="rounded-lg border border-[#202023] bg-[#101011] p-5 text-center text-sm text-[#71717a]">
+                          No payment records.
+                        </div>
+                      ) : (
+                        [...selectedCustomer.payments]
+                          .sort((a, b) => new Date(b.payment_time).getTime() - new Date(a.payment_time).getTime())
+                          .map((payment) => {
+                            const captured = isCapturedPayment(payment.status);
+                            const failed = isFailedPayment(payment.status);
+                            return (
+                              <div key={payment.id} className="rounded-lg border border-[#202023] bg-[#101011] p-3.5 [&+&]:mt-2">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div className="flex items-center gap-2">
+                                    <strong className="text-sm font-bold text-slate-100">
+                                      ₹{Number(payment.amount || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                                    </strong>
+                                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold ${captured ? "bg-emerald-400/10 text-emerald-300" : failed ? "bg-red-400/10 text-red-300" : "bg-amber-400/10 text-amber-300"}`}>
+                                      {captured ? <Check size={12} /> : failed ? <XCircle size={12} /> : <Clock3 size={12} />}
+                                      {captured ? "Captured" : failed ? "Failed" : "Pending"}
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] text-[#71717a]">{formatDateTimeIST(payment.payment_time)}</span>
+                                </div>
+                                <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[#71717a]">
+                                  <span>Course</span>
+                                  <strong className="text-slate-400">{normalizeCourse(payment.course) || "Not recorded"}</strong>
+                                  <span className="text-slate-700">•</span>
+                                  <span>Batch</span>
+                                  <strong className="text-slate-400">{getDisplayBatch(payment.course, payment.batch)}</strong>
+                                </div>
+                              </div>
+                            );
+                          })
+                      )}
+                    </div>
+                  </div>
+
+                </>
+              ) : null}
+            </div>
+          </div>
+        )}
+
         {/* MOBILE BOTTOM NAV */}
         <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.08] bg-[#050505]/95 px-1.5 pb-[env(safe-area-inset-bottom)] pt-1.5 backdrop-blur-xl lg:hidden">
           <div className="mx-auto grid max-w-[760px] grid-cols-7">
@@ -725,7 +1013,6 @@ export default function DashboardPage() {
             <MobileNavItem icon={<CalendarDays size={17} />} label="Consultations" href="/dashboard/consultations" />
             <MobileNavItem icon={<CreditCard size={17} />} label="Courses" href="/dashboard/courses" />
             <MobileNavItem icon={<CircleDollarSign size={17} />} label="Revenue" href="/dashboard/revenue" />
-            <MobileNavItem icon={<MessageCircle size={17} />} label="WhatsApp" href="/dashboard/whatsapp" />
             <MobileNavItem icon={<BarChart3 size={17} />} label="Analytics" href="/dashboard/analytics" />
           </div>
         </nav>
@@ -756,6 +1043,30 @@ export default function DashboardPage() {
 
 
 
+
+function isCapturedPayment(status: string) {
+  const value = String(status || "").toLowerCase();
+  return value === "captured" || value === "paid" || value === "success" || value === "successful";
+}
+
+function isFailedPayment(status: string) {
+  const value = String(status || "").toLowerCase();
+  return value === "failed" || value === "failure";
+}
+
+function formatDateTimeIST(value: string | null | undefined) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return date.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function formatRelativeTime(value: string) {
   const timestamp = new Date(value).getTime();
@@ -796,6 +1107,59 @@ function formatRelativeTime(value: string) {
     month: "short",
     year: "numeric",
   });
+}
+
+function AutomationStatus({
+  status,
+}: {
+  status: RecentPayment["automationStatus"];
+}) {
+  const config = {
+    sent: {
+      label: "Sent",
+      className: "bg-emerald-400/10 text-emerald-300",
+      dot: "bg-emerald-400",
+    },
+    pending: {
+      label: "Pending",
+      className: "bg-amber-400/10 text-amber-300",
+      dot: "bg-amber-400",
+    },
+    processing: {
+      label: "Sending",
+      className: "bg-blue-400/10 text-blue-300",
+      dot: "bg-blue-400",
+    },
+    failed: {
+      label: "Failed",
+      className: "bg-red-400/10 text-red-300",
+      dot: "bg-red-400",
+    },
+    cancelled: {
+      label: "Cancelled",
+      className: "bg-slate-400/10 text-slate-400",
+      dot: "bg-slate-500",
+    },
+    not_triggered: {
+      label: "Not Triggered",
+      className: "bg-slate-400/10 text-slate-500",
+      dot: "bg-slate-600",
+    },
+  }[status];
+
+  return (
+    <span
+      title={
+        status === "not_triggered"
+          ? "No email automation was triggered for this payment."
+          : `Email automation: ${config.label}`
+      }
+      className={`hidden w-fit items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-bold md:flex ${config.className}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
+      {config.label}
+    </span>
+  );
 }
 
 function MobileNavItem({

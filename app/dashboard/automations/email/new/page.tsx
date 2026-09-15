@@ -11,12 +11,15 @@ import {
   Minus,
   Plus,
   Save,
+  Send,
   Settings2,
   Table2,
   Trash2,
   Type,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
+
+type TriggerType = "specific" | "fallback";
 
 type FieldKey =
   | "amount"
@@ -373,7 +376,7 @@ function generateEmailHtml(
 <tr>
 <td
   style="
-    padding:0 0 18px 0;
+    padding:0 0 10px 0;
     font-family:Arial,Helvetica,sans-serif;
     font-size:${block.size}px;
     line-height:1.25;
@@ -392,10 +395,10 @@ function generateEmailHtml(
 <tr>
 <td
   style="
-    padding:0 0 20px 0;
+    padding:0 0 10px 0;
     font-family:Arial,Helvetica,sans-serif;
     font-size:${block.size}px;
-    line-height:1.7;
+    line-height:1.5;
     color:${block.color};
     text-align:${block.align};
   "
@@ -412,7 +415,7 @@ function generateEmailHtml(
 <td
   style="
     padding:12px;
-    background:${block.headerBg};
+    background:transparent;
     color:${block.headerText};
     border:1px solid ${block.borderColor};
     font-family:Arial,Helvetica,sans-serif;
@@ -436,7 +439,7 @@ ${row
 <td
   style="
     padding:12px;
-    background:${block.cellBg};
+    background:transparent;
     color:${block.cellText};
     border:1px solid ${block.borderColor};
     font-family:Arial,Helvetica,sans-serif;
@@ -454,7 +457,7 @@ ${row
 
         return `
 <tr>
-<td style="padding:0 0 22px 0;">
+<td style="padding:0 0 12px 0;">
 <table
   role="presentation"
   cellpadding="0"
@@ -568,8 +571,7 @@ ${buttonText}
 <body
   style="
     margin:0;
-    padding:30px 12px;
-    background:#151515;
+    padding:0;
   "
 >
 <table
@@ -596,11 +598,10 @@ ${buttonText}
     width:100%;
     max-width:600px;
     border-collapse:collapse;
-    background:#ffffff;
   "
 >
 <tr>
-<td style="padding:32px;">
+<td style="padding:0;">
 
 <table
   role="presentation"
@@ -793,91 +794,115 @@ function Variables({
 ------------------------------------------------------- */
 
 function Trigger({
+  triggerType,
   field,
   operator,
   value,
+  onTriggerTypeChange,
   onFieldChange,
   onOperatorChange,
   onValueChange,
 }: {
+  triggerType: TriggerType;
   field: FieldKey;
   operator: OperatorKey;
   value: string;
-  onFieldChange: (
-    value: FieldKey
-  ) => void;
-  onOperatorChange: (
-    value: OperatorKey
-  ) => void;
-  onValueChange: (
-    value: string
-  ) => void;
+  onTriggerTypeChange: (value: TriggerType) => void;
+  onFieldChange: (value: FieldKey) => void;
+  onOperatorChange: (value: OperatorKey) => void;
+  onValueChange: (value: string) => void;
 }) {
   return (
     <section className="rounded-xl border border-white/10 bg-[#090909] p-4">
       <div className="mb-3 flex items-center gap-2">
-        <Settings2
-          size={15}
-          className="text-red-400"
-        />
-
+        <Settings2 size={15} className="text-red-400" />
         <h2 className="text-sm font-semibold text-white">
           Trigger Condition
         </h2>
       </div>
 
-      <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
-        <div className="flex h-11 shrink-0 items-center rounded-lg border border-red-500/20 bg-red-500/[0.04] px-3 text-[11px] font-bold tracking-[0.14em] text-red-300">
-          WHEN
-        </div>
+      <div className="mb-3 grid gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => onTriggerTypeChange("specific")}
+          className={`rounded-lg border px-3 py-3 text-left transition ${
+            triggerType === "specific"
+              ? "border-red-500/40 bg-red-500/[0.08]"
+              : "border-white/10 bg-white/[0.02] hover:border-white/20"
+          }`}
+        >
+          <div className="text-xs font-semibold text-white">
+            Specific Condition
+          </div>
+          <div className="mt-1 text-[11px] text-white/40">
+            Send when a payment matches a rule.
+          </div>
+        </button>
 
-        <div className="hidden text-white/20 xl:block">
-          |
-        </div>
-
-        <SelectBox
-          value={field}
-          options={FIELD_OPTIONS}
-          onChange={onFieldChange}
-          className="xl:w-[180px]"
-        />
-
-        <div className="hidden text-white/20 xl:block">
-          |
-        </div>
-
-        <SelectBox
-          value={operator}
-          options={OPERATOR_OPTIONS}
-          onChange={
-            onOperatorChange
-          }
-          className="xl:w-[165px]"
-        />
-
-        <div className="hidden text-white/20 xl:block">
-          |
-        </div>
-
-        <input
-          value={value}
-          onChange={(e) =>
-            onValueChange(
-              e.target.value
-            )
-          }
-          placeholder="299"
-          className="h-11 min-w-0 flex-1 rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-red-500/40"
-        />
+        <button
+          type="button"
+          onClick={() => onTriggerTypeChange("fallback")}
+          className={`rounded-lg border px-3 py-3 text-left transition ${
+            triggerType === "fallback"
+              ? "border-red-500/40 bg-red-500/[0.08]"
+              : "border-white/10 bg-white/[0.02] hover:border-white/20"
+          }`}
+        >
+          <div className="text-xs font-semibold text-white">
+            Default Payment Confirmation
+          </div>
+          <div className="mt-1 text-[11px] text-white/40">
+            Send when no specific automation matches.
+          </div>
+        </button>
       </div>
 
-      <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs text-white/40">
-        {getExample(
-          field,
-          operator,
-          value
-        )}
-      </div>
+      {triggerType === "fallback" ? (
+        <div className="rounded-lg border border-red-500/15 bg-red-500/[0.04] px-3 py-3 text-xs text-white/55">
+          This automation will be used as the general payment
+          confirmation when a successful payment does not match any
+          active specific automation.
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
+            <div className="flex h-11 shrink-0 items-center rounded-lg border border-red-500/20 bg-red-500/[0.04] px-3 text-[11px] font-bold tracking-[0.14em] text-red-300">
+              WHEN
+            </div>
+
+            <div className="hidden text-white/20 xl:block">|</div>
+
+            <SelectBox
+              value={field}
+              options={FIELD_OPTIONS}
+              onChange={onFieldChange}
+              className="xl:w-[180px]"
+            />
+
+            <div className="hidden text-white/20 xl:block">|</div>
+
+            <SelectBox
+              value={operator}
+              options={OPERATOR_OPTIONS}
+              onChange={onOperatorChange}
+              className="xl:w-[165px]"
+            />
+
+            <div className="hidden text-white/20 xl:block">|</div>
+
+            <input
+              value={value}
+              onChange={(e) => onValueChange(e.target.value)}
+              placeholder="299"
+              className="h-11 min-w-0 flex-1 rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-red-500/40"
+            />
+          </div>
+
+          <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs text-white/40">
+            {getExample(field, operator, value)}
+          </div>
+        </>
+      )}
     </section>
   );
 }
@@ -1870,6 +1895,9 @@ function EmailAutomationContent() {
       "Payment Confirmation"
     );
 
+  const [triggerType, setTriggerType] =
+    useState<TriggerType>("specific");
+
   const [field, setField] =
     useState<FieldKey>("amount");
 
@@ -1931,6 +1959,18 @@ function EmailAutomationContent() {
     useState(false);
 
   const [saving, setSaving] =
+    useState(false);
+
+  const [testEmail, setTestEmail] =
+    useState("");
+
+  const [sendingTest, setSendingTest] =
+    useState(false);
+
+  const [testMessage, setTestMessage] =
+    useState("");
+
+  const [showTestModal, setShowTestModal] =
     useState(false);
 
   const [loadingAutomation, setLoadingAutomation] =
@@ -2024,6 +2064,12 @@ function EmailAutomationContent() {
 
         setAutomationName(
           automation.name ?? "Payment Confirmation"
+        );
+
+        setTriggerType(
+          automation.trigger?.type === "fallback"
+            ? "fallback"
+            : "specific"
         );
 
         setField(
@@ -2706,6 +2752,67 @@ function EmailAutomationContent() {
   };
 
   /* ---------------------------------------------
+     Send Test Email
+  --------------------------------------------- */
+
+  const sendTestEmail = async () => {
+    const email = testEmail.trim();
+
+    if (!email) {
+      setTestMessage("Enter a test email address.");
+      return;
+    }
+
+    setSendingTest(true);
+    setTestMessage("");
+
+    try {
+      const response = await fetch(
+        "/api/automations/email/test",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            to: email,
+            subject,
+            html: generateEmailHtml(
+              blocks,
+              footerText,
+              footerLinks,
+              false
+            ),
+          }),
+        }
+      );
+
+      const result = await response
+        .json()
+        .catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error ||
+            "Unable to send test email."
+        );
+      }
+
+      setTestMessage(
+        `Test email sent to ${email}.`
+      );
+    } catch (error) {
+      setTestMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to send test email."
+      );
+    } finally {
+      setSendingTest(false);
+    }
+  };
+
+  /* ---------------------------------------------
      Save / Update
   --------------------------------------------- */
 
@@ -2720,12 +2827,14 @@ function EmailAutomationContent() {
 
           type: "email",
 
-          trigger: {
-            field,
-            operator,
-            value:
-              triggerValue,
-          },
+          trigger:
+            triggerType === "fallback"
+              ? { type: "fallback" }
+              : {
+                  field,
+                  operator,
+                  value: triggerValue,
+                },
 
           recipient: {
             name: toName,
@@ -2807,6 +2916,90 @@ function EmailAutomationContent() {
 
   return (
     <main className="min-h-screen bg-[#050505] text-white">
+      {showTestModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0b0b0b] p-5 shadow-2xl shadow-black/70">
+            <div className="mb-5">
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-red-400">
+                Email Testing
+              </div>
+
+              <h2 className="text-lg font-semibold text-white">
+                Send Test Email
+              </h2>
+
+              <p className="mt-1 text-xs leading-5 text-white/40">
+                Send the current email design to a real inbox.
+                This does not trigger the automation or create an
+                automation job.
+              </p>
+            </div>
+
+            <label className="mb-2 block text-[10px] font-semibold uppercase tracking-[0.16em] text-white/30">
+              Test Recipient
+            </label>
+
+            <input
+              type="email"
+              value={testEmail}
+              onChange={(e) => {
+                setTestEmail(e.target.value);
+                setTestMessage("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !sendingTest) {
+                  e.preventDefault();
+                  sendTestEmail();
+                }
+              }}
+              placeholder="you@example.com"
+              autoFocus
+              className="h-11 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-red-500/40"
+            />
+
+            {testMessage && (
+              <div
+                className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+                  testMessage.startsWith("Test email sent")
+                    ? "border-emerald-500/20 bg-emerald-500/[0.05] text-emerald-400"
+                    : "border-red-500/20 bg-red-500/[0.05] text-red-400"
+                }`}
+              >
+                {testMessage}
+              </div>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!sendingTest) {
+                    setShowTestModal(false);
+                    setTestMessage("");
+                  }
+                }}
+                disabled={sendingTest}
+                className="h-10 rounded-lg border border-white/10 bg-white/[0.03] px-4 text-xs font-medium text-white/60 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={sendTestEmail}
+                disabled={sendingTest || !testEmail.trim()}
+                className="flex h-10 items-center gap-2 rounded-lg bg-red-600 px-4 text-xs font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Send size={14} />
+                {sendingTest
+                  ? "Sending..."
+                  : "Send Test Email"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Ambient background */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -left-40 top-20 h-[420px] w-[420px] rounded-full bg-red-600/[0.035] blur-[120px]" />
@@ -2879,6 +3072,23 @@ function EmailAutomationContent() {
                 Gmail Connected
               </div>
             )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setTestMessage("");
+                setShowTestModal(true);
+              }}
+              disabled={
+                saving ||
+                loadingAutomation ||
+                sendingTest
+              }
+              className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 text-xs font-semibold text-white/70 transition hover:border-red-500/30 hover:bg-red-500/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Send size={14} />
+              Send Test
+            </button>
 
             <button
               type="button"
@@ -2955,22 +3165,14 @@ function EmailAutomationContent() {
 
             {/* Trigger */}
             <Trigger
+              triggerType={triggerType}
               field={field}
-              operator={
-                operator
-              }
-              value={
-                triggerValue
-              }
-              onFieldChange={
-                setField
-              }
-              onOperatorChange={
-                setOperator
-              }
-              onValueChange={
-                setTriggerValue
-              }
+              operator={operator}
+              value={triggerValue}
+              onTriggerTypeChange={setTriggerType}
+              onFieldChange={setField}
+              onOperatorChange={setOperator}
+              onValueChange={setTriggerValue}
             />
 
             {/* Email details */}

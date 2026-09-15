@@ -3,6 +3,8 @@ import crypto from "node:crypto";
 
 import { createClient } from "@/lib/supabase/server";
 
+import { queueEmailAutomationsForPayment } from "@/lib/automations/email-engine";
+
 export const runtime = "nodejs";
 
 /*
@@ -1416,6 +1418,42 @@ export async function POST(request: NextRequest) {
       "Payment verification failed:",
       verifyPaymentError,
     );
+  }
+
+  /* =========================================================
+   * EMAIL AUTOMATIONS
+   * =========================================================
+   *
+   * The payment has now been successfully saved and verified.
+   * Queue matching email automations here. The automation engine
+   * does NOT send the email directly; it creates an automation job
+   * for the email worker/processor.
+   */
+
+  let emailAutomationResult: any = null;
+
+  if (savedPayment && savedPayment.status === "captured") {
+    try {
+      emailAutomationResult =
+        await queueEmailAutomationsForPayment(savedPayment.id);
+
+      console.log(
+        "EMAIL AUTOMATION RESULT:",
+        JSON.stringify(
+          {
+            paymentId: savedPayment.id,
+            ...emailAutomationResult,
+          },
+          null,
+          2,
+        ),
+      );
+    } catch (automationError) {
+      console.error(
+        "Email automation processing failed:",
+        automationError,
+      );
+    }
   }
 
   /* =========================================================
