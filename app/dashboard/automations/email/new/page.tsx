@@ -701,7 +701,7 @@ function SelectBox<T extends string>({
                     );
                     setOpen(false);
                   }}
-                  className={`w-full rounded-lg px-3 py-2.5 text-left text-sm transition ${
+                  className={`w-full min-w-0 rounded-lg px-3 py-2.5 text-left text-sm transition ${
                     option.value === value
                       ? "bg-white/[0.08] text-white"
                       : "text-white/60 hover:bg-white/[0.05] hover:text-white"
@@ -730,7 +730,7 @@ function ColorPicker({
   onChange: (value: string) => void;
 }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 flex-wrap items-center gap-2">
       <input
         type="color"
         value={value}
@@ -778,7 +778,7 @@ function Variables({
               onClick={() =>
                 onInsert(variable)
               }
-              className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-[11px] text-white/55 transition hover:border-red-500/30 hover:bg-red-500/5 hover:text-red-300"
+              className="max-w-full rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-[11px] text-white/55 transition hover:border-red-500/30 hover:bg-red-500/5 hover:text-red-300"
             >
               {variable}
             </button>
@@ -813,7 +813,7 @@ function Trigger({
   onValueChange: (value: string) => void;
 }) {
   return (
-    <section className="rounded-xl border border-white/10 bg-[#090909] p-4">
+    <section className="max-w-full rounded-xl border border-white/10 bg-[#090909] p-4">
       <div className="mb-3 flex items-center gap-2">
         <Settings2 size={15} className="text-red-400" />
         <h2 className="text-sm font-semibold text-white">
@@ -821,7 +821,7 @@ function Trigger({
         </h2>
       </div>
 
-      <div className="mb-3 grid gap-2 sm:grid-cols-2">
+      <div className="mb-3 grid gap-2 sm:grid-cols-1 lg:grid-cols-2">
         <button
           type="button"
           onClick={() => onTriggerTypeChange("specific")}
@@ -858,7 +858,7 @@ function Trigger({
       </div>
 
       {triggerType === "fallback" ? (
-        <div className="rounded-lg border border-red-500/15 bg-red-500/[0.04] px-3 py-3 text-xs text-white/55">
+        <div className="max-w-full min-w-0 rounded-lg border border-red-500/15 bg-red-500/[0.04] px-3 py-3 text-xs text-white/55">
           This automation will be used as the general payment
           confirmation when a successful payment does not match any
           active specific automation.
@@ -898,7 +898,7 @@ function Trigger({
             />
           </div>
 
-          <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs text-white/40">
+          <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] w-full px-3 py-2.5 text-xs sm:w-auto text-white/40">
             {getExample(field, operator, value)}
           </div>
         </>
@@ -1006,8 +1006,8 @@ function TableEditor({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="overflow-x-auto rounded-lg border border-white/10">
+    <div className="space-y-3 sm:space-y-4">
+      <div className="max-w-full min-w-0 overflow-x-auto overscroll-x-contain rounded-lg border border-white/10">
         <table className="w-full min-w-[560px] border-collapse">
           <thead>
             <tr>
@@ -1130,7 +1130,7 @@ function TableEditor({
                           rowIndex
                         )
                       }
-                      className="rounded-md p-2 text-white/25 transition hover:bg-red-500/10 hover:text-red-400"
+                      className="max-w-full rounded-md p-2 text-white/25 transition hover:bg-red-500/10 hover:text-red-400"
                     >
                       <Trash2
                         size={14}
@@ -1148,7 +1148,7 @@ function TableEditor({
         <button
           type="button"
           onClick={addRow}
-          className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-medium text-white/60 transition hover:border-red-500/30 hover:text-white"
+          className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] w-full px-3 py-2.5 text-xs sm:w-auto font-medium text-white/60 transition hover:border-red-500/30 hover:text-white"
         >
           <Plus size={14} />
           Add Row
@@ -1157,14 +1157,14 @@ function TableEditor({
         <button
           type="button"
           onClick={addColumn}
-          className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-medium text-white/60 transition hover:border-red-500/30 hover:text-white"
+          className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] w-full px-3 py-2.5 text-xs sm:w-auto font-medium text-white/60 transition hover:border-red-500/30 hover:text-white"
         >
           <Plus size={14} />
           Add Column
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:grid-cols-5">
         <div>
           <label className="mb-1.5 block text-[10px] uppercase tracking-wider text-white/30">
             Header BG
@@ -1293,9 +1293,9 @@ function EmailBlockEditor({
   ) => void;
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-[#090909]">
-      <div className="flex items-center justify-between border-b border-white/10 px-3 py-2.5">
-        <div className="flex items-center gap-2">
+    <div className="max-w-full rounded-xl border border-white/10 bg-[#090909]">
+      <div className="flex flex-wrap items-center justify-between border-b border-white/10 px-3 py-2.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <GripVertical
             size={15}
             className="text-white/20"
@@ -1348,13 +1348,13 @@ function EmailBlockEditor({
         <button
           type="button"
           onClick={onDelete}
-          className="rounded-md p-1.5 text-white/20 transition hover:bg-red-500/10 hover:text-red-400"
+          className="max-w-full rounded-md p-1.5 text-white/20 transition hover:bg-red-500/10 hover:text-red-400"
         >
           <Trash2 size={14} />
         </button>
       </div>
 
-      <div className="p-4">
+      <div className="p-3 sm:p-4">
         {block.type ===
           "heading" && (
           <>
@@ -1387,7 +1387,7 @@ function EmailBlockEditor({
               onInsert={onInsertVariable}
             />
 
-            <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
               <div>
                 <label className="mb-1.5 block text-[10px] uppercase tracking-wider text-white/30">
                   Size
@@ -1406,7 +1406,7 @@ function EmailBlockEditor({
                       ),
                     })
                   }
-                  className="h-9 w-full rounded-lg border border-white/10 bg-[#101010] px-2 text-xs text-white outline-none"
+                  className="h-9 w-full min-w-0 rounded-lg border border-white/10 bg-[#101010] px-2 text-xs text-white outline-none"
                 />
               </div>
 
@@ -1455,7 +1455,7 @@ function EmailBlockEditor({
                 })
               }
               rows={6}
-              className="w-full resize-y rounded-lg border border-white/10 bg-[#101010] p-3 text-sm leading-6 text-white outline-none placeholder:text-white/20 focus:border-red-500/30"
+              className="w-full min-w-0 resize-y rounded-lg border border-white/10 bg-[#101010] p-3 text-sm leading-6 text-white outline-none placeholder:text-white/20 focus:border-red-500/30"
               placeholder="Write your email content..."
             />
 
@@ -1463,7 +1463,7 @@ function EmailBlockEditor({
               onInsert={onInsertVariable}
             />
 
-            <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
               <div>
                 <label className="mb-1.5 block text-[10px] uppercase tracking-wider text-white/30">
                   Size
@@ -1482,7 +1482,7 @@ function EmailBlockEditor({
                       ),
                     })
                   }
-                  className="h-9 w-full rounded-lg border border-white/10 bg-[#101010] px-2 text-xs text-white outline-none"
+                  className="h-9 w-full min-w-0 rounded-lg border border-white/10 bg-[#101010] px-2 text-xs text-white outline-none"
                 />
               </div>
 
@@ -1532,7 +1532,7 @@ function EmailBlockEditor({
         {block.type ===
           "button" && (
           <>
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-3 md:grid-cols-1 lg:grid-cols-2">
               <div>
                 <label className="mb-1.5 block text-[10px] uppercase tracking-wider text-white/30">
                   Button Text
@@ -1558,7 +1558,7 @@ function EmailBlockEditor({
                       text: e.target.value,
                     })
                   }
-                  className="h-10 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none"
+                  className="h-10 w-full min-w-0 rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none"
                 />
               </div>
 
@@ -1587,7 +1587,7 @@ function EmailBlockEditor({
                       url: e.target.value,
                     })
                   }
-                  className="h-10 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none"
+                  className="h-10 w-full min-w-0 rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none"
                   placeholder="https://example.com"
                 />
               </div>
@@ -1599,7 +1599,7 @@ function EmailBlockEditor({
               }
             />
 
-            <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-3">
+            <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <label className="mb-1.5 block text-[10px] uppercase tracking-wider text-white/30">
                   Button BG
@@ -1653,7 +1653,7 @@ function EmailBlockEditor({
                         | "right",
                     })
                   }
-                  className="h-9 w-full rounded-lg border border-white/10 bg-[#101010] px-2 text-xs text-white outline-none"
+                  className="h-9 w-full min-w-0 rounded-lg border border-white/10 bg-[#101010] px-2 text-xs text-white outline-none"
                 >
                   <option value="left">
                     Left
@@ -1762,7 +1762,7 @@ function Preview({
   return (
     <div className="flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#080808]">
       <div className="shrink-0 border-b border-white/10 px-4 py-3">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Mail
             size={15}
             className="text-red-400"
@@ -1800,13 +1800,13 @@ function Preview({
         </div>
       </div>
 
-      <div className="max-h-[calc(100vh-190px)] min-h-[500px] overflow-y-auto bg-[#151515] p-3">
+      <div className="max-h-[calc(100vh-190px)] min-h-[500px] max-h-[70vh] lg:max-h-none overflow-y-auto bg-[#151515] p-3">
         <iframe
           title="Email Preview"
           srcDoc={html}
           onLoad={handlePreviewLoad}
           style={{ height: `${previewHeight}px` }}
-          className="w-full rounded-lg border-0 bg-white transition-[height] duration-150"
+          className="w-full min-w-0 rounded-lg border-0 bg-white transition-[height] duration-150"
           scrolling="no"
         />
       </div>
@@ -2915,7 +2915,7 @@ function EmailAutomationContent() {
     };
 
   return (
-    <main className="min-h-screen bg-[#050505] text-white">
+    <main className="min-h-screen w-full max-w-full overflow-x-hidden bg-[#050505] text-white">
       {showTestModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0b0b0b] p-5 shadow-2xl shadow-black/70">
@@ -2954,12 +2954,12 @@ function EmailAutomationContent() {
               }}
               placeholder="you@example.com"
               autoFocus
-              className="h-11 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-red-500/40"
+              className="h-11 w-full min-w-0 rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-red-500/40"
             />
 
             {testMessage && (
               <div
-                className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+                className={`mt-3 rounded-lg border w-full px-3 py-2.5 text-xs sm:w-auto ${
                   testMessage.startsWith("Test email sent")
                     ? "border-emerald-500/20 bg-emerald-500/[0.05] text-emerald-400"
                     : "border-red-500/20 bg-red-500/[0.05] text-red-400"
@@ -3002,14 +3002,14 @@ function EmailAutomationContent() {
 
       {/* Ambient background */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -left-40 top-20 h-[420px] w-[420px] rounded-full bg-red-600/[0.035] blur-[120px]" />
+        <div className="absolute -left-40 top-20 h-[420px] max-h-[70vh] lg:max-h-none w-[420px] rounded-full bg-red-600/[0.035] blur-[120px]" />
 
-        <div className="absolute right-0 top-[30%] h-[360px] w-[360px] rounded-full bg-red-600/[0.025] blur-[110px]" />
+        <div className="absolute right-0 top-[30%] h-[360px] max-h-[70vh] lg:max-h-none w-[360px] rounded-full bg-red-600/[0.025] blur-[110px]" />
       </div>
 
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-white/[0.07] bg-[#050505]/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-[68px] max-w-[1500px] items-center justify-between px-5 lg:px-8">
+        <div className="mx-auto flex h-[68px] max-h-[70vh] lg:max-h-none max-w-[1500px] items-center justify-between px-5 lg:px-8">
           <div className="flex items-center gap-4">
             <button
               type="button"
@@ -3038,7 +3038,7 @@ function EmailAutomationContent() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             {message && (
               <span
                 className={`hidden text-xs sm:block ${
@@ -3129,7 +3129,7 @@ function EmailAutomationContent() {
             Automation Builder
           </div>
 
-          <h1 className="text-2xl font-bold tracking-tight text-white lg:text-3xl">
+          <h1 className="text-lg sm:text-base sm:text-lg lg:text-xl lg:text-2xl font-bold tracking-tight text-white lg:text-3xl">
             {editingId
               ? "Edit Email Automation"
               : "Create Email Automation"}
@@ -3144,7 +3144,7 @@ function EmailAutomationContent() {
           {/* LEFT */}
           <div className="space-y-5">
             {/* Automation name */}
-            <section className="rounded-xl border border-white/10 bg-[#090909] p-4">
+            <section className="max-w-full rounded-xl border border-white/10 bg-[#090909] p-4">
               <label className="mb-2 block text-[10px] font-semibold uppercase tracking-[0.16em] text-white/30">
                 Automation Name
               </label>
@@ -3158,7 +3158,7 @@ function EmailAutomationContent() {
                     e.target.value
                   )
                 }
-                className="h-11 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-red-500/30"
+                className="h-11 w-full min-w-0 rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-red-500/30"
                 placeholder="Payment Confirmation"
               />
             </section>
@@ -3176,7 +3176,7 @@ function EmailAutomationContent() {
             />
 
             {/* Email details */}
-            <section className="rounded-xl border border-white/10 bg-[#090909] p-4">
+            <section className="max-w-full rounded-xl border border-white/10 bg-[#090909] p-4">
               <div className="mb-4 flex items-center gap-2">
                 <Mail
                   size={15}
@@ -3188,7 +3188,7 @@ function EmailAutomationContent() {
                 </h2>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid min-w-0 grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-2">
                 <div>
                   <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-white/30">
                     Recipient Name
@@ -3227,7 +3227,7 @@ function EmailAutomationContent() {
                           .value
                       )
                     }
-                    className="h-10 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-red-500/30"
+                    className="h-10 w-full min-w-0 rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-red-500/30"
                     placeholder="Customer"
                   />
                 </div>
@@ -3270,7 +3270,7 @@ function EmailAutomationContent() {
                           .value
                       )
                     }
-                    className="h-10 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-red-500/30"
+                    className="h-10 w-full min-w-0 rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-red-500/30"
                     placeholder="{{email}}"
                   />
                 </div>
@@ -3314,7 +3314,7 @@ function EmailAutomationContent() {
                         .value
                     )
                   }
-                  className="h-11 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-red-500/30"
+                  className="h-11 w-full min-w-0 rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-red-500/30"
                   placeholder="Your payment has been received"
                 />
 
@@ -3423,7 +3423,7 @@ function EmailAutomationContent() {
                           type
                         )
                       }
-                      className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-xs text-white/45 transition hover:border-red-500/30 hover:bg-red-500/[0.03] hover:text-white"
+                      className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] w-full px-3 py-2.5 text-xs sm:w-auto text-white/45 transition hover:border-red-500/30 hover:bg-red-500/[0.03] hover:text-white"
                     >
                       <Plus
                         size={
@@ -3443,7 +3443,7 @@ function EmailAutomationContent() {
             </section>
 
             {/* Email Footer */}
-            <section className="rounded-xl border border-white/10 bg-[#090909] p-4">
+            <section className="max-w-full rounded-xl border border-white/10 bg-[#090909] p-4">
               <div className="mb-4">
                 <h2 className="text-sm font-semibold text-white">
                   Email Footer
@@ -3492,7 +3492,7 @@ function EmailAutomationContent() {
                   )
                 }
                 rows={3}
-                className="w-full resize-y rounded-lg border border-white/10 bg-[#101010] p-3 text-sm leading-6 text-white outline-none placeholder:text-white/20 focus:border-red-500/30"
+                className="w-full min-w-0 resize-y rounded-lg border border-white/10 bg-[#101010] p-3 text-sm leading-6 text-white outline-none placeholder:text-white/20 focus:border-red-500/30"
                 placeholder="By completing this payment, you agree to our policies."
               />
 
@@ -3503,7 +3503,7 @@ function EmailAutomationContent() {
               />
 
               <div className="mt-5">
-                <div className="mb-2 flex items-center justify-between">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-semibold text-white">
                       Policy Links
@@ -3519,7 +3519,7 @@ function EmailAutomationContent() {
                     onClick={
                       addFooterLink
                     }
-                    className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-white/55 transition hover:border-red-500/30 hover:text-white"
+                    className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] w-full px-2.5 py-2 text-[11px] sm:w-auto text-white/55 transition hover:border-red-500/30 hover:text-white"
                   >
                     <Plus
                       size={13}
@@ -3538,7 +3538,7 @@ function EmailAutomationContent() {
                         key={
                           link.id
                         }
-                        className="grid gap-2 rounded-lg border border-white/[0.07] bg-white/[0.02] p-2 md:grid-cols-[0.9fr_1.4fr_auto]"
+                        className="grid min-w-0 grid-cols-1 gap-2 rounded-lg border border-white/[0.07] bg-white/[0.02] p-2 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)_auto]"
                       >
                         <input
                           value={
@@ -3660,7 +3660,7 @@ function EmailAutomationContent() {
             </section>
 
             {/* Delivery timing */}
-            <section className="rounded-xl border border-white/10 bg-[#090909] p-4">
+            <section className="max-w-full rounded-xl border border-white/10 bg-[#090909] p-4">
               <div className="mb-4">
                 <h2 className="text-sm font-semibold text-white">
                   Delivery Timing
@@ -3671,7 +3671,7 @@ function EmailAutomationContent() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <input
                   type="number"
                   min="0"
@@ -3684,7 +3684,7 @@ function EmailAutomationContent() {
                         .value
                     )
                   }
-                  className="h-10 w-32 rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none"
+                  className="h-10 w-full sm:w-auto rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-white outline-none"
                 />
 
                 <span className="text-xs text-white/35">
@@ -3695,7 +3695,7 @@ function EmailAutomationContent() {
           </div>
 
           {/* RIGHT */}
-          <div className="xl:sticky xl:top-[84px] xl:self-start">
+          <div className="w-full min-w-0 lg:sticky lg:top-[84px] lg:self-start">
             <Preview
               subject={
                 subject

@@ -20,6 +20,13 @@ type Trigger = {
   value?: string;
 };
 
+type CustomerData = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+};
+
 type Recipient = {
   name?: string;
   email?: string;
@@ -87,6 +94,7 @@ function isFallbackTrigger(trigger: Trigger | null) {
 
 function matchesTrigger(
   payment: PaymentData,
+  customer: CustomerData,
   trigger: Trigger | null,
 ) {
   if (!trigger?.field || isFallbackTrigger(trigger)) {
@@ -121,6 +129,27 @@ function matchesTrigger(
 
     case "paymentType":
       actual = payment.payment_type ?? "";
+      break;
+
+    // Builder/customer fields
+    case "customerName":
+    case "name":
+      actual = customer.name ?? "";
+      break;
+
+    case "customerEmail":
+    case "email":
+      actual = customer.email ?? "";
+      break;
+
+    case "customerPhone":
+    case "phone":
+      actual = customer.phone ?? "";
+      break;
+
+    case "paymentId":
+    case "payment_id":
+      actual = payment.payment_id ?? "";
       break;
 
     default:
@@ -304,10 +333,16 @@ export async function queueEmailAutomationsForPayment(
   // Specific automations always have priority over the fallback.
   // Only the first matching specific automation is used so one payment
   // cannot accidentally send multiple confirmation emails.
+  const typedCustomer = customer as CustomerData;
+
   const specificMatch = activeAutomations.find(
     (automation) =>
       !isFallbackTrigger(automation.trigger) &&
-      matchesTrigger(typedPayment, automation.trigger),
+      matchesTrigger(
+        typedPayment,
+        typedCustomer,
+        automation.trigger,
+      ),
   );
 
   const fallbackAutomations = activeAutomations.filter(

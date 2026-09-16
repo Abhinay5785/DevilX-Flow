@@ -607,9 +607,9 @@ export default function DashboardPage() {
         </aside>
 
         {/* MAIN */}
-        <main className="min-w-0 flex-1 bg-black pb-24 lg:pb-0">
+        <main className="min-w-0 flex-1 bg-black pb-28 sm:pb-28 lg:pb-0">
           {/* MOBILE HEADER */}
-          <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/[0.08] bg-black/90 px-3 py-3 backdrop-blur-xl lg:hidden sm:px-5">
+          <header className="sticky top-0 z-30 flex min-h-[62px] items-center justify-between gap-2 border-b border-white/[0.08] bg-black/90 px-3 py-3 backdrop-blur-xl lg:hidden sm:px-5">
             <Link href="/dashboard" className="flex min-w-0 items-center gap-2.5">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#ff1744] to-[#c90032] shadow-[0_0_24px_rgba(255,23,68,0.22)]">
                 <span className="text-base font-black">X</span>
@@ -643,8 +643,8 @@ export default function DashboardPage() {
             </div>
           </header>
 
-          <div className="mx-auto w-full max-w-[1800px] px-3 py-4 sm:px-5 sm:py-6 md:px-7 lg:px-9">
-            <section className="mb-4 flex flex-col gap-3 sm:mb-5 sm:gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div className="mx-auto w-full max-w-[1800px] px-3 py-4 sm:px-5 sm:py-6 md:px-7 lg:px-9 xl:px-10">
+            <section className="mb-4 flex flex-col gap-3 sm:mb-5 sm:gap-4 md:flex-row md:items-end md:justify-between xl:gap-6">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#ff1744]">Overview</p>
                 <h1 className="mt-1 text-[28px] font-bold tracking-[-0.03em] text-white sm:text-3xl md:text-[34px]">Dashboard</h1>
@@ -653,7 +653,7 @@ export default function DashboardPage() {
                 </p>
               </div>
 
-              <div className="flex w-fit max-w-full items-center gap-2 rounded-xl border border-white/[0.08] bg-[#0b0c0e] px-2.5 py-2 sm:px-3">
+              <div className="flex w-full max-w-full items-center gap-2 rounded-xl border border-white/[0.08] bg-[#0b0c0e] px-2.5 py-2 sm:w-fit sm:px-3">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#ff1744]/10 text-[#ff1744]">
                   <CalendarDays size={15} />
                 </div>
@@ -772,7 +772,7 @@ export default function DashboardPage() {
                         return (
                           <div
                             key={payment.id}
-                            className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-2.5 py-3.5 transition hover:bg-white/[0.025] sm:px-3 md:grid-cols-[minmax(130px,1.3fr)_minmax(80px,0.8fr)_80px_90px_88px_70px_90px_28px] md:py-3"
+                            className="group grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 px-1.5 py-3.5 transition hover:bg-white/[0.025] sm:px-3 md:items-center md:grid-cols-[minmax(130px,1.3fr)_minmax(80px,0.8fr)_80px_90px_88px_70px_90px_28px] md:py-3"
                           >
                             <div className="flex min-w-0 items-center gap-2.5">
                               <div
@@ -830,7 +830,7 @@ export default function DashboardPage() {
                             <span className="hidden text-xs text-slate-400 md:block">
                               {getDisplayBatch(payment.course, payment.batch)}
                             </span>
-                            <span className="text-right text-sm font-bold text-slate-100 md:text-left">
+                            <span className="pt-0.5 text-right text-sm font-bold text-slate-100 md:pt-0 md:text-left">
                               ₹{payment.amount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
                             </span>
 
@@ -881,14 +881,14 @@ export default function DashboardPage() {
               }
             }}
           >
-            <div className="w-full max-w-[720px] max-h-[calc(100vh-24px)] overflow-auto rounded-xl border border-[#29292d] bg-[#09090a] shadow-[0_30px_90px_rgba(0,0,0,.65)]">
+            <div className="w-full max-w-[720px] max-h-[calc(100dvh-16px)] overflow-y-auto overscroll-contain rounded-2xl border border-[#29292d] bg-[#09090a] shadow-[0_30px_90px_rgba(0,0,0,.65)] sm:max-h-[calc(100dvh-32px)]">
               {customerModalLoading ? (
                 <div className="flex min-h-[220px] items-center justify-center text-sm text-slate-500">
                   Loading customer details...
                 </div>
               ) : selectedCustomer ? (
                 <>
-                  <div className="flex items-start justify-between gap-4 border-b border-[#202023] px-5 py-5 sm:px-[22px]">
+                  <div className="flex items-start justify-between gap-3 border-b border-[#202023] px-4 py-4 sm:gap-4 sm:px-[22px] sm:py-5">
                     <div className="min-w-0">
                       <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#71717a]">
                         CUSTOMER
@@ -896,7 +896,7 @@ export default function DashboardPage() {
                       <h2 className="mt-1 text-xl font-bold tracking-tight text-white">
                         {selectedCustomer.name}
                       </h2>
-                      <p className="mt-1 truncate text-xs text-[#71717a]">
+                      <p className="mt-1 max-w-[calc(100vw-110px)] truncate text-xs text-[#71717a] sm:max-w-[560px]">
                         {selectedCustomer.email || selectedCustomer.phone || "Customer details"}
                       </p>
                     </div>
@@ -910,7 +910,7 @@ export default function DashboardPage() {
                     </button>
                   </div>
 
-                  <div className="p-5 sm:p-[22px]">
+                  <div className="p-4 sm:p-[22px]">
                     <div className="grid grid-cols-1 gap-px overflow-hidden rounded-[9px] border border-[#202023] bg-[#202023] sm:grid-cols-2">
                       {[
                         ["Age", selectedCustomer.age ?? "—"],
@@ -1006,14 +1006,17 @@ export default function DashboardPage() {
         )}
 
         {/* MOBILE BOTTOM NAV */}
-        <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.08] bg-[#050505]/95 px-1.5 pb-[env(safe-area-inset-bottom)] pt-1.5 backdrop-blur-xl lg:hidden">
-          <div className="mx-auto grid max-w-[760px] grid-cols-7">
-            <MobileNavItem icon={<LayoutDashboard size={17} />} label="Home" href="/dashboard" active />
-            <MobileNavItem icon={<Users size={17} />} label="Customers" href="/dashboard/customers" />
-            <MobileNavItem icon={<CalendarDays size={17} />} label="Consultations" href="/dashboard/consultations" />
-            <MobileNavItem icon={<CreditCard size={17} />} label="Courses" href="/dashboard/courses" />
-            <MobileNavItem icon={<CircleDollarSign size={17} />} label="Revenue" href="/dashboard/revenue" />
-            <MobileNavItem icon={<BarChart3 size={17} />} label="Analytics" href="/dashboard/analytics" />
+        <nav
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.08] bg-[#050505]/95 px-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1 backdrop-blur-xl lg:hidden"
+          aria-label="Mobile navigation"
+        >
+          <div className="mx-auto grid max-w-[760px] grid-cols-6 gap-0.5 sm:gap-1">
+            <MobileNavItem icon={<LayoutDashboard size={18} />} label="Home" href="/dashboard" active />
+            <MobileNavItem icon={<Users size={18} />} label="Customers" href="/dashboard/customers" />
+            <MobileNavItem icon={<CalendarDays size={18} />} label="Consultations" href="/dashboard/consultations" />
+            <MobileNavItem icon={<CreditCard size={18} />} label="Courses" href="/dashboard/courses" />
+            <MobileNavItem icon={<CircleDollarSign size={18} />} label="Revenue" href="/dashboard/revenue" />
+            <MobileNavItem icon={<Zap size={18} />} label="Automations" href="/dashboard/automations" />
           </div>
         </nav>
       </div>
@@ -1025,7 +1028,15 @@ export default function DashboardPage() {
 
         .devilx-dashboard {
           overflow-x: hidden;
+          min-height: 100dvh;
           -webkit-tap-highlight-color: transparent;
+        }
+
+        @media (max-width: 639px) {
+          .devilx-dashboard button,
+          .devilx-dashboard a {
+            -webkit-tap-highlight-color: transparent;
+          }
         }
 
         .devilx-dashboard,
@@ -1177,14 +1188,14 @@ function MobileNavItem({
     <Link
       href={href}
       className={
-        "flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-[9px] font-semibold transition-all " +
+        "flex min-w-0 min-h-[46px] flex-col items-center justify-center gap-0.5 rounded-xl px-0 py-1 text-[8px] font-semibold leading-tight transition-all sm:min-h-[48px] sm:gap-1 sm:px-0.5 sm:text-[9px] " +
         (active
           ? "bg-[#ff1744]/10 text-[#ff5d79]"
           : "text-slate-500 hover:bg-white/[0.04] hover:text-slate-200")
       }
     >
       {icon}
-      <span className="max-w-full truncate">{label}</span>
+      <span className="max-w-full truncate text-center">{label}</span>
     </Link>
   );
 }
