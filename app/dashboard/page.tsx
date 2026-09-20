@@ -365,46 +365,82 @@ export default function DashboardPage() {
       } else {
         const paymentRows = paymentsResult.data || [];
 
-        // Load automation jobs for the recent payments so the dashboard
-        // can show whether an email automation was sent, is pending,
-        // processing, failed, or was not triggered.
-        const paymentIds = paymentRows.map((payment) => String(payment.id));
-
+        // IMPORTANT:
+        // Read automation_jobs independently from the payment query.
+        // Do not depend on a nested Supabase relationship or only the
+        // latest payment IDs. Existing/old automation jobs must remain
+        // visible on the dashboard.
         const { data: automationJobs, error: automationJobsError } =
-          paymentIds.length > 0
-            ? await supabase
-                .from("automation_jobs")
-                .select(
-                  "payment_id,status,updated_at,send_at,sent_at,error_message",
-                )
-                .in("payment_id", paymentIds)
-                .order("updated_at", { ascending: false })
-            : { data: [], error: null };
+          await supabase
+            .from("automation_jobs")
+            .select(
+              "payment_id,status,updated_at,send_at,sent_at,error_message",
+            )
+            .order("updated_at", { ascending: false })
+            .limit(1000);
 
         if (automationJobsError) {
           console.error(
-            "Failed to load recent payment automation status:",
+            "Failed to load automation jobs for dashboard:",
             automationJobsError,
           );
         }
 
-        // Keep the newest automation job for each payment.
+        // Keep the strongest/latest status for every payment.
+        // This prevents an older/lower-priority job from replacing a
+        // successfully sent email with Pending or Not Triggered.
+        const automationStatusPriority: Record<string, number> = {
+          sent: 5,
+          failed: 4,
+          processing: 3,
+          pending: 2,
+          cancelled: 1,
+        };
+
         const latestAutomationByPayment = new Map<
           string,
           {
             status: string;
+            updatedAt: number;
           }
         >();
 
         for (const job of automationJobs || []) {
-          const paymentId = String(job.payment_id || "");
-          if (!paymentId || latestAutomationByPayment.has(paymentId)) {
+          const paymentId = String(job.payment_id || "").trim();
+          if (!paymentId) continue;
+
+          const status = String(job.status || "")
+            .trim()
+            .toLowerCase();
+          const updatedAt = new Date(
+            String(job.updated_at || job.sent_at || job.send_at || ""),
+          ).getTime();
+
+          const existing = latestAutomationByPayment.get(paymentId);
+
+          if (!existing) {
+            latestAutomationByPayment.set(paymentId, {
+              status,
+              updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
+            });
             continue;
           }
 
-          latestAutomationByPayment.set(paymentId, {
-            status: String(job.status || "").toLowerCase(),
-          });
+          const currentPriority = automationStatusPriority[status] ?? 0;
+          const existingPriority =
+            automationStatusPriority[existing.status] ?? 0;
+
+          if (
+            currentPriority > existingPriority ||
+            (currentPriority === existingPriority &&
+              (Number.isFinite(updatedAt) ? updatedAt : 0) >
+                existing.updatedAt)
+          ) {
+            latestAutomationByPayment.set(paymentId, {
+              status,
+              updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
+            });
+          }
         }
 
         setRecentPayments(
@@ -428,23 +464,26 @@ export default function DashboardPage() {
                 payment.payment_time ||
                   new Date().toISOString(),
               ),
-              automationStatus:
-                latestAutomationByPayment.get(String(payment.id))
-                  ?.status === "sent"
-                  ? "sent"
-                  : latestAutomationByPayment.get(String(payment.id))
-                        ?.status === "pending"
-                    ? "pending"
-                    : latestAutomationByPayment.get(String(payment.id))
-                          ?.status === "processing"
-                      ? "processing"
-                      : latestAutomationByPayment.get(String(payment.id))
-                            ?.status === "failed"
-                        ? "failed"
-                        : latestAutomationByPayment.get(String(payment.id))
-                              ?.status === "cancelled"
-                          ? "cancelled"
-                          : "not_triggered",
+              automationStatus: (() => {
+                const automation = latestAutomationByPayment.get(
+                  String(payment.id).trim(),
+                );
+
+                switch (automation?.status) {
+                  case "sent":
+                    return "sent";
+                  case "pending":
+                    return "pending";
+                  case "processing":
+                    return "processing";
+                  case "failed":
+                    return "failed";
+                  case "cancelled":
+                    return "cancelled";
+                  default:
+                    return "not_triggered";
+                }
+              })(),
             };
           }),
         );
