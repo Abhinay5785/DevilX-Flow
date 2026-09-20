@@ -108,6 +108,9 @@ export default function DashboardPage() {
   const [recentPayments, setRecentPayments] =
     useState<RecentPayment[]>([]);
 
+  const [upcomingConsultationsCount, setUpcomingConsultationsCount] =
+    useState(0);
+
   const [selectedCustomer, setSelectedCustomer] =
     useState<SelectedCustomer | null>(null);
   const [customerModalLoading, setCustomerModalLoading] =
@@ -176,6 +179,7 @@ export default function DashboardPage() {
       const [
         customersResult,
         paymentsResult,
+        consultationsResult,
       ] = await Promise.all([
         supabase
           .from("customers")
@@ -212,9 +216,41 @@ export default function DashboardPage() {
           )
           .order("payment_time", { ascending: false })
           .limit(8),
+        supabase
+          .from("consultations")
+          .select("booking_date,booking_time,status")
+          .order("booking_date", { ascending: true })
+          .order("booking_time", { ascending: true }),
       ]);
 
       if (cancelled) return;
+
+      if (consultationsResult.error) {
+        console.error(
+          "Failed to load upcoming consultation count:",
+          consultationsResult.error,
+        );
+        setUpcomingConsultationsCount(0);
+      } else {
+        const nowMs = Date.now();
+
+        const upcomingCount = (consultationsResult.data || []).filter((consultation) => {
+          const bookingTimestamp = getBookingTimestamp(
+            String(consultation.booking_date || ""),
+            String(consultation.booking_time || ""),
+          );
+
+          if (bookingTimestamp === null || bookingTimestamp <= nowMs) {
+            return false;
+          }
+
+          const status = String(consultation.status || "").trim().toLowerCase();
+
+          return !["completed", "cancelled", "canceled", "no-show", "no_show"].includes(status);
+        }).length;
+
+        setUpcomingConsultationsCount(upcomingCount);
+      }
 
       if (customersResult.error) {
         console.error(
@@ -524,6 +560,19 @@ export default function DashboardPage() {
       )
       .subscribe();
 
+    const consultationsChannel = supabase
+      .channel("dashboard-consultations-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "consultations",
+        },
+        refreshDashboard,
+      )
+      .subscribe();
+
     const automationJobsChannel = supabase
       .channel("dashboard-automation-jobs-realtime")
       .on(
@@ -541,6 +590,7 @@ export default function DashboardPage() {
       cancelled = true;
       supabase.removeChannel(customersChannel);
       supabase.removeChannel(paymentsChannel);
+      supabase.removeChannel(consultationsChannel);
       supabase.removeChannel(automationJobsChannel);
     };
   }, []);
@@ -758,6 +808,69 @@ export default function DashboardPage() {
                   </div>
                 );
               })}
+            </section>
+
+            {/* UPCOMING CONSULTATIONS CARD */}
+            <section className="mb-4 sm:mb-5">
+              <Link
+                href="/dashboard/consultations?view=upcoming"
+                className="group relative block w-full overflow-hidden rounded-[22px] border border-white/[0.08] bg-[#0b0c0f] shadow-[0_18px_55px_rgba(0,0,0,0.35)] transition-all duration-300 hover:-translate-y-1 hover:border-[#ff1744]/35 hover:shadow-[0_22px_65px_rgba(255,23,68,0.10)]"
+              >
+                {/* Ambient background */}
+                <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-[#ff1744]/[0.07] blur-3xl transition duration-500 group-hover:bg-[#ff1744]/[0.12]" />
+                <div className="pointer-events-none absolute -bottom-28 left-1/3 h-44 w-44 rounded-full bg-[#7c3aed]/[0.045] blur-3xl" />
+                <div className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-[#ff1744]/80 to-transparent" />
+
+                <div className="relative flex min-h-[116px] items-center justify-between gap-5 px-5 py-5 sm:px-6 sm:py-6">
+                  {/* Left content */}
+                  <div className="flex min-w-0 items-center gap-4 sm:gap-5">
+                    <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[#ff1744]/20 bg-gradient-to-br from-[#ff1744]/15 to-[#ff1744]/[0.03] text-[#ff6683] shadow-[0_0_30px_rgba(255,23,68,0.10)]">
+                      <CalendarDays size={22} strokeWidth={1.8} />
+                      <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#0b0c0f] bg-[#ff1744] px-1 text-[9px] font-black text-white shadow-[0_0_14px_rgba(255,23,68,0.45)]">
+                        {upcomingConsultationsCount}
+                      </span>
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-[15px] font-bold tracking-tight text-white sm:text-base">
+                          Upcoming Consultations
+                        </p>
+                        <span className="rounded-full border border-emerald-400/15 bg-emerald-400/[0.06] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-300">
+                          Live
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500 sm:text-[13px]">
+                        Future booked consultation slots
+                      </p>
+                      <div className="mt-2.5 flex items-center gap-1.5 text-[10px] font-medium text-slate-600">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_7px_rgba(52,211,153,0.5)]" />
+                        Updated automatically
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right metric + action */}
+                  <div className="flex shrink-0 items-center gap-3 sm:gap-5">
+                    <div className="hidden text-right sm:block">
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-600">
+                        Upcoming
+                      </p>
+                      <p className="mt-0.5 text-3xl font-black leading-none tracking-[-0.04em] text-white">
+                        {upcomingConsultationsCount}
+                      </p>
+                      <p className="mt-1 text-[9px] text-slate-600">
+                        {upcomingConsultationsCount === 1 ? "slot" : "slots"}
+                      </p>
+                    </div>
+
+                    <div className="flex h-10 items-center gap-2 rounded-xl border border-[#ff1744]/20 bg-[#ff1744]/[0.07] px-3.5 text-xs font-bold text-[#ff6683] transition-all duration-300 group-hover:border-[#ff1744]/40 group-hover:bg-[#ff1744]/[0.12] group-hover:text-[#ff8ba2] sm:h-11 sm:px-4">
+                      <span>View</span>
+                      <ArrowUpRight size={15} className="transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                    </div>
+                  </div>
+                </div>
+              </Link>
             </section>
 
             <section>
@@ -1102,6 +1215,46 @@ function isCapturedPayment(status: string) {
 function isFailedPayment(status: string) {
   const value = String(status || "").toLowerCase();
   return value === "failed" || value === "failure";
+}
+
+function getBookingTimestamp(date: string, time: string) {
+  if (!date) return null;
+
+  const rawTime = String(time || "").trim();
+  let hour = 0;
+  let minute = 0;
+
+  const match12 = rawTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  const match24 = rawTime.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+
+  if (match12) {
+    hour = Number(match12[1]);
+    minute = Number(match12[2]);
+    const period = match12[3].toUpperCase();
+
+    if (hour === 12) hour = 0;
+    if (period === "PM") hour += 12;
+  } else if (match24) {
+    hour = Number(match24[1]);
+    minute = Number(match24[2]);
+  }
+
+  if (
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  const timestamp = new Date(
+    `${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+05:30`,
+  ).getTime();
+
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 function formatDateTimeIST(value: string | null | undefined) {

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 
@@ -15,6 +16,8 @@ type ConsultationStatus =
   | "Completed"
   | "Cancelled"
   | "No Show";
+
+type TableMode = "upcoming" | "payments";
 
 type Consultation = {
   id: string;
@@ -75,6 +78,50 @@ function formatDateTime(date: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+// Any Consultation payment made before 10 Sep 2026 is treated as completed.
+const AUTO_COMPLETE_BEFORE_DATE = "2026-09-10";
+const AUTO_COMPLETE_PAYMENT_CUTOFF = new Date("2026-09-10T00:00:00+05:30").getTime();
+
+function getBookingTimestamp(date: string, time: string) {
+  if (!date) return null;
+
+  const rawTime = String(time || "").trim();
+  let hour = 0;
+  let minute = 0;
+
+  const match12 = rawTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  const match24 = rawTime.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+
+  if (match12) {
+    hour = Number(match12[1]);
+    minute = Number(match12[2]);
+    const period = match12[3].toUpperCase();
+
+    if (hour === 12) hour = 0;
+    if (period === "PM") hour += 12;
+  } else if (match24) {
+    hour = Number(match24[1]);
+    minute = Number(match24[2]);
+  }
+
+  if (
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  const timestamp = new Date(
+    `${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+05:30`
+  ).getTime();
+
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 function formatAmount(amount: number) {
@@ -170,6 +217,7 @@ function followUpBucket(dateString: string | null, today: string) {
 
 export default function ConsultationsPage() {
   const supabase = createClient();
+  const searchParams = useSearchParams();
 
   const [consultations, setConsultations] =
     useState<Consultation[]>([]);
@@ -191,6 +239,11 @@ export default function ConsultationsPage() {
   const [dateFilter, setDateFilter] =
     useState("All");
 
+  const [tableMode, setTableMode] =
+    useState<TableMode>(() =>
+      searchParams.get("view") === "upcoming" ? "upcoming" : "payments"
+    );
+
   const [view, setView] =
     useState<"list" | "calendar">("list");
 
@@ -202,8 +255,31 @@ export default function ConsultationsPage() {
   const [browserNotificationsEnabled, setBrowserNotificationsEnabled] =
     useState(false);
 
+  // Keep the Upcoming Slots view live as time passes.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const perPage = 15;
+
+  // Dashboard links can open this page directly with ?view=upcoming.
+  // Keep the visible table mode synchronized with that URL parameter.
+  useEffect(() => {
+    const requestedView = searchParams.get("view");
+
+    if (requestedView === "upcoming") {
+      setTableMode("upcoming");
+      setDateFilter("All");
+      setStatusFilter("All");
+      setSearch("");
+      setPage(1);
+    } else if (!requestedView) {
+      setTableMode("payments");
+    }
+  }, [searchParams]);
 
   /* =======================================================
      LIVE SUPABASE DATA
@@ -314,6 +390,19 @@ export default function ConsultationsPage() {
           ? rawBookingStatus
           : "Scheduled";
 
+        const bookingDate = hasBooking
+          ? String(booking?.booking_date || "")
+          : "";
+
+        const paymentTimestamp = payment.payment_time
+          ? new Date(String(payment.payment_time)).getTime()
+          : null;
+
+        const shouldAutoComplete =
+          paymentTimestamp !== null &&
+          Number.isFinite(paymentTimestamp) &&
+          paymentTimestamp < AUTO_COMPLETE_PAYMENT_CUTOFF;
+
         return {
           id: String(booking?.id || payment.id || `${paymentId}-${index}`),
           customerId,
@@ -326,9 +415,13 @@ export default function ConsultationsPage() {
           paymentAmount: Number(payment.amount || booking?.payment_amount || 0),
           paymentStatus: "Paid",
           paymentTime: String(payment.payment_time || booking?.payment_time || ""),
-          bookingDate: hasBooking ? String(booking?.booking_date || "") : "",
+          bookingDate,
           bookingTime: hasBooking ? String(booking?.booking_time || "") : "",
-          status: hasBooking ? (booking?.recording_link ? "Completed" : validBookingStatus) as ConsultationStatus : "Pending",
+          status: shouldAutoComplete
+            ? "Completed"
+            : hasBooking
+              ? (booking?.recording_link ? "Completed" : validBookingStatus) as ConsultationStatus
+              : "Pending",
           meetLink: String(booking?.meet_link || ""),
           recordingLink: booking?.recording_link ? String(booking.recording_link) : null,
           notes: String(booking?.notes || ""),
@@ -338,76 +431,69 @@ export default function ConsultationsPage() {
         };
       });
 
-      // Always show the latest CONSULTATION date/time first.
-      // Do not use new Date(`${date}T${time}`) here because booking_time can
-      // be stored as a 12-hour value such as "09:30 AM", which makes that
-      // ISO string invalid in JavaScript and incorrectly falls back to payment time.
+      // Keep the raw data stable here. The visible table has its own
+      // sorting mode so Upcoming Slots can be chronological while
+      // Latest Payments can remain payment-time driven.
       rows.sort((a, b) => {
-        const getSortKey = (item: Consultation) => {
-          // Prefer the actual consultation/booking date.
-          if (item.bookingDate) {
-            let minutes = 0;
-            const rawTime = String(item.bookingTime || "").trim();
+        const aPayment = a.paymentTime
+          ? new Date(a.paymentTime).getTime()
+          : 0;
+        const bPayment = b.paymentTime
+          ? new Date(b.paymentTime).getTime()
+          : 0;
 
-            if (rawTime) {
-              const match12 = rawTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-              const match24 = rawTime.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-
-              if (match12) {
-                let hour = Number(match12[1]);
-                const minute = Number(match12[2]);
-                const period = match12[3].toUpperCase();
-                if (hour === 12) hour = 0;
-                if (period === "PM") hour += 12;
-                minutes = hour * 60 + minute;
-              } else if (match24) {
-                minutes = Number(match24[1]) * 60 + Number(match24[2]);
-              }
-            }
-
-            // YYYY-MM-DD sorts chronologically as a string.
-            return `${item.bookingDate}T${String(minutes).padStart(4, "0")}`;
-          }
-
-          // Rows without a consultation date fall back to payment timestamp.
-          const paymentTime = item.paymentTime
-            ? new Date(item.paymentTime).getTime()
-            : 0;
-          return Number.isFinite(paymentTime) ? paymentTime : 0;
-        };
-
-        const aKey = getSortKey(a);
-        const bKey = getSortKey(b);
-
-        if (typeof aKey === "string" && typeof bKey === "string") {
-          return bKey.localeCompare(aKey);
-        }
-        if (typeof aKey === "string") return -1;
-        if (typeof bKey === "string") return 1;
-        return bKey - aKey;
+        return bPayment - aPayment;
       });
 
       setConsultations(rows);
       // IMPORTANT: do not auto-select a user. Details appear only after clicking a row.
       setSelectedId((current) => current && rows.some((item) => item.id === current) ? current : null);
 
-      // Keep recorded bookings synchronized as Completed.
-      const needsCompletionSync = rows.filter(
+      // Keep recorded bookings synchronized as Completed, and automatically
+      // mark every Consultation payment made before 10 Sep 2026 as Completed.
+      const historicalRowsToComplete = rows.filter((item) => {
+        const paymentTimestamp = item.paymentTime
+          ? new Date(item.paymentTime).getTime()
+          : null;
+
+        return (
+          paymentTimestamp !== null &&
+          Number.isFinite(paymentTimestamp) &&
+          paymentTimestamp < AUTO_COMPLETE_PAYMENT_CUTOFF
+        );
+      });
+
+      const recordedRowsToComplete = rows.filter(
         (item) => item.recordingLink && item.status === "Completed"
       ).filter((item) => {
-        const originalRow = bookingRows.find((row: any) => String(row.id) === item.id);
+        const originalRow = bookingRows.find(
+          (row: any) => String(row.id) === item.id
+        );
         return originalRow && String(originalRow.status || "") !== "Completed";
       });
 
-      if (needsCompletionSync.length > 0) {
+      const idsToComplete = Array.from(
+        new Set([
+          ...historicalRowsToComplete.map((item) => String(item.id)),
+          ...recordedRowsToComplete.map((item) => String(item.id)),
+        ])
+      ).filter(Boolean);
+
+      if (idsToComplete.length > 0) {
         const completedAt = new Date().toISOString();
         const { error: completionSyncError } = await supabase
           .from("consultations")
-          .update({ status: "Completed", completed_at: completedAt })
-          .in("id", needsCompletionSync.map((item) => item.id));
+          .update({
+            status: "Completed",
+            completed_at: completedAt,
+          })
+          .in("id", idsToComplete);
 
         if (completionSyncError) {
-          console.error("Failed to sync recorded consultations as completed:", completionSyncError);
+          console.error(
+            "Failed to sync historical consultations as completed:",
+            completionSyncError
+          );
         }
       }
 
@@ -448,66 +534,105 @@ export default function ConsultationsPage() {
 
   const filteredConsultations =
     useMemo(() => {
-      return consultations.filter(
-        (consultation) => {
-          const searchValue =
-            search.toLowerCase().trim();
+      const rows = consultations.filter((consultation) => {
+        const searchValue = search.toLowerCase().trim();
 
-          const matchesSearch =
-            !searchValue ||
-            consultation.studentName
-              .toLowerCase()
-              .includes(searchValue) ||
-            consultation.email
-              .toLowerCase()
-              .includes(searchValue) ||
-            consultation.phone
-              .toLowerCase()
-              .includes(searchValue) ||
-            consultation.paymentId
-              .toLowerCase()
-              .includes(searchValue);
+        const matchesSearch =
+          !searchValue ||
+          consultation.studentName.toLowerCase().includes(searchValue) ||
+          consultation.email.toLowerCase().includes(searchValue) ||
+          consultation.phone.toLowerCase().includes(searchValue) ||
+          consultation.paymentId.toLowerCase().includes(searchValue);
 
-          const matchesStatus =
-            statusFilter === "All" ||
-            consultation.status ===
-              statusFilter;
+        const matchesStatus =
+          statusFilter === "All" ||
+          consultation.status === statusFilter;
 
-          let matchesDate = true;
+        const bookingTimestamp = getBookingTimestamp(
+          consultation.bookingDate,
+          consultation.bookingTime
+        );
 
+        let matchesDate = true;
+
+        // Upcoming Slots = ONLY real future appointment date + time.
+        if (tableMode === "upcoming") {
+          matchesDate =
+            bookingTimestamp !== null &&
+            bookingTimestamp > nowMs &&
+            consultation.status !== "Completed" &&
+            consultation.status !== "Cancelled" &&
+            consultation.status !== "No Show";
+
+          // Allow Today to narrow Upcoming Slots to today's remaining slots.
+          if (matchesDate && dateFilter === "Today") {
+            matchesDate = consultation.bookingDate === todayString;
+          }
+
+          // Past cannot logically be part of Upcoming Slots.
+          if (dateFilter === "Past") {
+            matchesDate = false;
+          }
+        } else if (tableMode === "payments") {
+          // Latest Payments is based only on payment_time.
+          matchesDate = true;
+        } else {
           if (dateFilter === "Today") {
-            matchesDate =
-              consultation.bookingDate ===
-              todayString;
+            matchesDate = consultation.bookingDate === todayString;
           }
 
           if (dateFilter === "Upcoming") {
             matchesDate =
-              Boolean(consultation.bookingDate) &&
-              consultation.bookingDate >= todayString &&
+              bookingTimestamp !== null &&
+              bookingTimestamp > nowMs &&
               consultation.status !== "Completed" &&
-              consultation.status !== "Cancelled";
+              consultation.status !== "Cancelled" &&
+              consultation.status !== "No Show";
           }
 
           if (dateFilter === "Past") {
             matchesDate =
-              consultation.bookingDate <
-              todayString;
+              bookingTimestamp !== null &&
+              bookingTimestamp <= nowMs;
           }
-
-          return (
-            matchesSearch &&
-            matchesStatus &&
-            matchesDate
-          );
         }
-      );
+
+        return matchesSearch && matchesStatus && matchesDate;
+      });
+
+      rows.sort((a, b) => {
+        if (tableMode === "upcoming") {
+          const aTime = getBookingTimestamp(a.bookingDate, a.bookingTime);
+          const bTime = getBookingTimestamp(b.bookingDate, b.bookingTime);
+
+          // Earliest future slot FIRST.
+          if (aTime === null && bTime === null) return 0;
+          if (aTime === null) return 1;
+          if (bTime === null) return -1;
+          return aTime - bTime;
+        }
+
+        if (tableMode === "payments") {
+          const aTime = a.paymentTime ? new Date(a.paymentTime).getTime() : 0;
+          const bTime = b.paymentTime ? new Date(b.paymentTime).getTime() : 0;
+          // Latest payment FIRST.
+          return bTime - aTime;
+        }
+
+        const aPayment = a.paymentTime ? new Date(a.paymentTime).getTime() : 0;
+        const bPayment = b.paymentTime ? new Date(b.paymentTime).getTime() : 0;
+        return bPayment - aPayment;
+      });
+
+      return rows;
     }, [
       consultations,
       search,
       statusFilter,
       dateFilter,
+      tableMode,
       todayString,
+      nowMs,
     ]);
 
   /* =======================================================
@@ -544,12 +669,20 @@ export default function ConsultationsPage() {
     ).length;
 
   const upcomingCount =
-    consultations.filter(
-      (item) =>
-        item.bookingDate >= todayString &&
+    consultations.filter((item) => {
+      const bookingTimestamp = getBookingTimestamp(
+        item.bookingDate,
+        item.bookingTime
+      );
+
+      return (
+        bookingTimestamp !== null &&
+        bookingTimestamp > nowMs &&
         item.status !== "Completed" &&
-        item.status !== "Cancelled"
-    ).length;
+        item.status !== "Cancelled" &&
+        item.status !== "No Show"
+      );
+    }).length;
 
   const pendingCount =
     consultations.filter(
@@ -562,6 +695,24 @@ export default function ConsultationsPage() {
       (item) =>
         item.status === "Completed"
     ).length;
+
+  // Latest captured consultation payment, ordered strictly by payment_time.
+  // This is separate from the Upcoming Slots ordering.
+  const latestPayment = useMemo(() => {
+    return consultations.reduce<Consultation | null>((latest, current) => {
+      if (!current.paymentTime) return latest;
+
+      if (!latest || !latest.paymentTime) return current;
+
+      const currentTime = new Date(current.paymentTime).getTime();
+      const latestTime = new Date(latest.paymentTime).getTime();
+
+      if (!Number.isFinite(currentTime)) return latest;
+      if (!Number.isFinite(latestTime)) return current;
+
+      return currentTime > latestTime ? current : latest;
+    }, null);
+  }, [consultations]);
 
   const followUps = consultations.filter(
     (item) => item.followUpRequired && item.followUpDate
@@ -1106,6 +1257,51 @@ export default function ConsultationsPage() {
           background: #ff1744;
           color: white;
           box-shadow: 0 0 20px rgba(255, 23, 68, .15);
+        }
+
+        .table-mode-switch {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 4px;
+          background: #111317;
+          border: 1px solid rgba(255, 255, 255, .09);
+          border-radius: 9px;
+        }
+
+        .table-mode-button {
+          height: 30px;
+          border: 0;
+          border-radius: 6px;
+          padding: 0 11px;
+          background: transparent;
+          color: #737b86;
+          font-size: 10px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: .15s ease;
+          white-space: nowrap;
+        }
+
+        .table-mode-button:hover {
+          color: #ffffff;
+          background: rgba(255, 255, 255, .04);
+        }
+
+        .table-mode-button.active {
+          background: #ff1744;
+          color: #ffffff;
+          box-shadow: 0 0 18px rgba(255, 23, 68, .14);
+        }
+
+        .latest-payment-highlight {
+          margin-top: 6px;
+          color: #777f8b;
+          font-size: 10px;
+        }
+
+        .latest-payment-highlight strong {
+          color: #f2f4f7;
         }
 
         .content-layout {
@@ -2060,6 +2256,15 @@ export default function ConsultationsPage() {
           .view-button {
             flex: 1;
           }
+
+          .table-mode-switch {
+            width: 100%;
+          }
+
+          .table-mode-button {
+            flex: 1;
+            padding: 0 7px;
+          }
         }
 
         @media (max-width: 500px) {
@@ -2319,6 +2524,12 @@ export default function ConsultationsPage() {
               {upcomingCount}
             </div>
 
+            <div className="stat-subtext">
+              {latestPayment
+                ? `Latest payment: ${latestPayment.studentName} • ${formatDateTime(latestPayment.paymentTime)}`
+                : "No captured payments"}
+            </div>
+
           </div>
 
           <div className="stat-card">
@@ -2462,6 +2673,33 @@ export default function ConsultationsPage() {
 
         <div className="toolbar">
 
+          <div className="table-mode-switch" aria-label="Consultation table mode">
+            <button
+              type="button"
+              className={`table-mode-button ${tableMode === "upcoming" ? "active" : ""}`}
+              onClick={() => {
+                setTableMode("upcoming");
+                setDateFilter("All");
+                setPage(1);
+              }}
+            >
+              Upcoming Slots
+            </button>
+
+            <button
+              type="button"
+              className={`table-mode-button ${tableMode === "payments" ? "active" : ""}`}
+              onClick={() => {
+                setTableMode("payments");
+                setDateFilter("All");
+                setPage(1);
+              }}
+            >
+              Latest Payments
+            </button>
+
+          </div>
+
           <div className="search-wrapper">
 
             <span className="search-icon">
@@ -2526,6 +2764,7 @@ export default function ConsultationsPage() {
           <select
             className="select"
             value={dateFilter}
+            disabled={tableMode === "payments"}
             onChange={(event) => {
               setDateFilter(
                 event.target.value
@@ -2600,13 +2839,17 @@ export default function ConsultationsPage() {
 
               <h2>
                 {view === "list"
-                  ? "All Consultations"
+                  ? tableMode === "upcoming"
+                    ? "Upcoming Consultation Slots"
+                    : tableMode === "payments"
+                      ? "Latest Payments"
+                      : "All Consultations"
                   : "Consultation Calendar"}
               </h2>
 
               <div className="result-count">
                 {filteredConsultations.length}{" "}
-                consultations
+                {tableMode === "payments" ? "payments" : "consultations"}
               </div>
 
             </div>
