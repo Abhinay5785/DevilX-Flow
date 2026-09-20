@@ -1,9 +1,10 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Fragment, FormEvent, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  ArrowUpDown,
   Check,
   Copy,
   Edit3,
@@ -123,8 +124,10 @@ export default function BatchDetailsPage() {
   const [editing, setEditing] = useState(false);
   const [students, setStudents] = useState<Student[]>([]);
   const [studentsLoading, setStudentsLoading] = useState(true);
+  const [failedPaymentCount, setFailedPaymentCount] = useState(0);
   const [studentSearch, setStudentSearch] = useState("");
   const [paymentFilter, setPaymentFilter] = useState<"all" | "full" | "advance_balance" | "advance_only" | "balance_only" | "other" | "no_payment">("all");
+  const [paymentSort, setPaymentSort] = useState<"latest" | "highest_paid" | "lowest_paid" | "most_payments" | "fewest_payments">("latest");
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [whatsappOpen, setWhatsappOpen] = useState(false);
   const [whatsappSending, setWhatsappSending] = useState(false);
@@ -200,13 +203,14 @@ export default function BatchDetailsPage() {
           )
           .ilike("course", courseName)
           .ilike("batch", batchName)
-          .eq("status", "captured")
+          .in("status", ["captured", "failed"])
           .order("payment_time", { ascending: false }),
       ]);
 
     if (customerError) {
       setMessage(`Could not load students: ${customerError.message}`);
       setStudents([]);
+      setFailedPaymentCount(0);
       setStudentsLoading(false);
       return;
     }
@@ -214,12 +218,24 @@ export default function BatchDetailsPage() {
     if (paymentError) {
       setMessage(`Could not load student payments: ${paymentError.message}`);
       setStudents([]);
+      setFailedPaymentCount(0);
       setStudentsLoading(false);
       return;
     }
 
     let customers = [...(customerRows || [])];
-    const routedPayments = (paymentRows || []) as StudentPayment[];
+    const allRoutedPayments = (paymentRows || []) as StudentPayment[];
+
+    // Student payment history and payment-status calculations use captured
+    // payments only. Failed payment attempts are tracked separately for the
+    // batch overview and are never treated as money paid.
+    const routedPayments = allRoutedPayments.filter(
+      (payment) => String(payment.status || "").toLowerCase() === "captured",
+    );
+    const failedPayments = allRoutedPayments.filter(
+      (payment) => String(payment.status || "").toLowerCase() === "failed",
+    );
+    setFailedPaymentCount(failedPayments.length);
 
     /*
      * If a routed payment belongs to a customer whose CURRENT customer row
@@ -251,6 +267,7 @@ export default function BatchDetailsPage() {
           `Could not load historical batch students: ${historicalCustomerError.message}`,
         );
         setStudents([]);
+        setFailedPaymentCount(0);
         setStudentsLoading(false);
         return;
       }
@@ -571,22 +588,26 @@ export default function BatchDetailsPage() {
   };
 
   // Live overview statistics.
-  // Total People Paid = unique students in this batch.
-  // Advance Payments = students who currently have ONLY an advance payment.
-  // Full Payments = students who completed the full amount, either by:
-  // 1) paying the full amount directly, or
-  // 2) paying Advance + Balance.
-  //
-  // Therefore, when an Advance Only student pays the Balance:
-  // Advance Payments decreases by 1 and Full Payments increases by 1.
+  // Total Payments = every captured payment record in this batch.
+  // Failed Payments = every failed payment attempt in this batch.
+  // No Payment = customers linked to this batch with no captured payment.
   const overviewPaymentCounts = useMemo(() => {
     const counts = {
-      all: students.length,
+      all: 0,
       advance: 0,
       full: 0,
+      failed: 0,
+      noPayment: 0,
     };
 
     students.forEach((student) => {
+      // Count every captured payment record individually.
+      counts.all += student.payments.length;
+
+      if (student.payments.length === 0) {
+        counts.noPayment += 1;
+      }
+
       switch (student.paymentStatus) {
         case "Advance Only":
           counts.advance += 1;
@@ -662,7 +683,7 @@ export default function BatchDetailsPage() {
   const filteredStudents = useMemo(() => {
     const query = studentSearch.trim().toLowerCase();
 
-    return students.filter((student) => {
+    const filtered = students.filter((student) => {
       const matchesSearch =
         !query ||
         [student.name, student.phone, student.email, student.city, student.paymentStatus]
@@ -680,7 +701,34 @@ export default function BatchDetailsPage() {
 
       return matchesSearch && matchesFilter;
     });
-  }, [students, studentSearch, paymentFilter]);
+
+    return [...filtered].sort((a, b) => {
+      if (paymentSort === "highest_paid") {
+        return b.totalPaid - a.totalPaid;
+      }
+
+      if (paymentSort === "lowest_paid") {
+        return a.totalPaid - b.totalPaid;
+      }
+
+      if (paymentSort === "most_payments") {
+        return b.payments.length - a.payments.length;
+      }
+
+      if (paymentSort === "fewest_payments") {
+        return a.payments.length - b.payments.length;
+      }
+
+      const latestA = a.payments[0]?.payment_time
+        ? new Date(a.payments[0].payment_time).getTime()
+        : 0;
+      const latestB = b.payments[0]?.payment_time
+        ? new Date(b.payments[0].payment_time).getTime()
+        : 0;
+
+      return latestB - latestA;
+    });
+  }, [students, studentSearch, paymentFilter, paymentSort]);
 
   const getWhatsAppVariableValue = (student: Student, variable: WhatsAppVariable) => {
     if (variable.source === "custom") return variable.customValue;
@@ -1130,9 +1178,9 @@ export default function BatchDetailsPage() {
 
             <div className="stats-grid">
               <StatCard
-                label="Total People Paid"
+                label="Total Payments"
                 value={String(overviewPaymentCounts.all)}
-                detail="Unique students"
+                detail="All captured payments"
                 accent="primary"
               />
               <StatCard
@@ -1146,6 +1194,18 @@ export default function BatchDetailsPage() {
                 value={String(overviewPaymentCounts.full)}
                 detail="Full Payment + Advance + Balance"
                 accent="full"
+              />
+              <StatCard
+                label="Failed Payments"
+                value={String(failedPaymentCount)}
+                detail="Failed payment attempts"
+                accent="failed"
+              />
+              <StatCard
+                label="No Payment"
+                value={String(overviewPaymentCounts.noPayment)}
+                detail="No captured payment"
+                accent="no-payment"
               />
             </div>
           </section>
@@ -1163,7 +1223,7 @@ export default function BatchDetailsPage() {
 
               <div className="student-summary">
                 <strong>{students.length}</strong>
-                <span>Total people</span>
+                <span>Unique people</span>
               </div>
             </div>
 
@@ -1257,13 +1317,14 @@ export default function BatchDetailsPage() {
                   {studentSearch ? " matching your search" : ""}
                 </div>
 
-                {(studentSearch || paymentFilter !== "all") && (
+                {(studentSearch || paymentFilter !== "all" || paymentSort !== "latest") && (
                   <button
                     type="button"
                     className="clear-filters"
                     onClick={() => {
                       setStudentSearch("");
                       setPaymentFilter("all");
+                      setPaymentSort("latest");
                     }}
                   >
                     <X size={13} />
@@ -1294,6 +1355,30 @@ export default function BatchDetailsPage() {
                     </button>
                   )}
                 </div>
+              </div>
+              <div className="payment-sort-control">
+                <ArrowUpDown size={15} />
+                <span>Payment Sort</span>
+                <select
+                  value={paymentSort}
+                  onChange={(event) =>
+                    setPaymentSort(
+                      event.target.value as
+                        | "latest"
+                        | "highest_paid"
+                        | "lowest_paid"
+                        | "most_payments"
+                        | "fewest_payments",
+                    )
+                  }
+                  aria-label="Sort students by payment"
+                >
+                  <option value="latest">Latest Payment</option>
+                  <option value="highest_paid">Highest Paid</option>
+                  <option value="lowest_paid">Lowest Paid</option>
+                  <option value="most_payments">Most Payments</option>
+                  <option value="fewest_payments">Fewest Payments</option>
+                </select>
               </div>
             </div>
 
@@ -1337,7 +1422,8 @@ export default function BatchDetailsPage() {
                     </thead>
                     <tbody>
                       {filteredStudents.map((student) => (
-                        <tr
+                        <Fragment key={student.id}>
+<tr
                           key={student.id}
                           className={
                             selectedStudentId === student.id ? "selected" : ""
@@ -1430,6 +1516,132 @@ export default function BatchDetailsPage() {
                             </span>
                           </td>
                         </tr>
+
+                          {selectedStudentId === student.id && (
+                            <tr className="student-detail-inline-row">
+                              <td colSpan={7}>
+                                <div className="student-detail-panel student-detail-inline-panel">
+                                  <div className="student-detail-header">
+                                    <div>
+                                      <span className="section-kicker">STUDENT DETAILS</span>
+                                      <h3>{student.name}</h3>
+                                      <p>
+                                        {student.paymentStatus} · {student.payments.length}{" "}
+                                        payment
+                                        {student.payments.length === 1 ? "" : "s"}
+                                      </p>
+                                    </div>
+
+                                    <button
+                                      type="button"
+                                      className="student-close"
+                                      onClick={() => setSelectedStudentId(null)}
+                                    >
+                                      <X size={16} />
+                                    </button>
+                                  </div>
+
+                                  <div className="student-detail-grid">
+                                    <div>
+                                      <span>Age</span>
+                                      <strong>{student.age ?? "Not provided"}</strong>
+                                    </div>
+                                    <div>
+                                      <span>City</span>
+                                      <strong>{student.city || "Not provided"}</strong>
+                                    </div>
+                                    <div>
+                                      <span>Phone</span>
+                                      <strong>{student.phone || "Not provided"}</strong>
+                                    </div>
+                                    <div>
+                                      <span>Email</span>
+                                      <strong>{student.email || "Not provided"}</strong>
+                                    </div>
+                                    <div>
+                                      <span>Total Paid</span>
+                                      <strong>{money(student.totalPaid)}</strong>
+                                    </div>
+                                    <div>
+                                      <span>Remaining</span>
+                                      <strong>
+                                        {money(
+                                          Math.max(
+                                            0,
+                                            batch.full_amount - student.totalPaid,
+                                          ),
+                                        )}
+                                      </strong>
+                                    </div>
+                                  </div>
+
+                                  <div className="payment-history">
+                                    <div className="history-heading">
+                                      <h4>Payment history</h4>
+                                      <span>Captured payments</span>
+                                    </div>
+
+                                    {student.payments.map((payment) => {
+                                      const kind = getPaymentKind(
+                                        payment,
+                                        batch.advance_amount,
+                                        batch.balance_amount,
+                                        batch.full_amount,
+                                      );
+
+                                      return (
+                                        <div
+                                          className="payment-history-row"
+                                          key={payment.id}
+                                        >
+                                          <div>
+                                            <span className={`history-kind ${kind}`}>
+                                              {kind === "advance"
+                                                ? "Advance"
+                                                : kind === "balance"
+                                                  ? "Balance"
+                                                  : kind === "full"
+                                                    ? "Full"
+                                                    : "Other"}
+                                            </span>
+                                            <strong>
+                                              {payment.payment_id ||
+                                                "Payment ID unavailable"}
+                                            </strong>
+                                            <span>
+                                              {payment.method
+                                                ? payment.method.toUpperCase()
+                                                : "Method unavailable"}
+                                            </span>
+                                          </div>
+
+                                          <div className="history-right">
+                                            <strong>
+                                              {money(Number(payment.amount || 0))}
+                                            </strong>
+                                            <span>
+                                              {payment.payment_time
+                                                ? new Date(
+                                                    payment.payment_time,
+                                                  ).toLocaleString("en-IN", {
+                                                    day: "2-digit",
+                                                    month: "short",
+                                                    year: "numeric",
+                                                    hour: "2-digit",
+                                                    minute: "2-digit",
+                                                  })
+                                                : "—"}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       ))}
                     </tbody>
                   </table>
@@ -1437,134 +1649,6 @@ export default function BatchDetailsPage() {
               );
             })()}
 
-            {selectedStudentId &&
-              (() => {
-                const student = students.find(
-                  (item) => item.id === selectedStudentId,
-                );
-                if (!student) return null;
-
-                return (
-                  <div className="student-detail-panel">
-                    <div className="student-detail-header">
-                      <div>
-                        <span className="section-kicker">STUDENT DETAILS</span>
-                        <h3>{student.name}</h3>
-                        <p>
-                          {student.paymentStatus} · {student.payments.length}{" "}
-                          payment
-                          {student.payments.length === 1 ? "" : "s"}
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        className="student-close"
-                        onClick={() => setSelectedStudentId(null)}
-                      >
-                        <X size={16} />
-                      </button>
-                    </div>
-
-                    <div className="student-detail-grid">
-                      <div>
-                        <span>Age</span>
-                        <strong>{student.age ?? "Not provided"}</strong>
-                      </div>
-                      <div>
-                        <span>City</span>
-                        <strong>{student.city || "Not provided"}</strong>
-                      </div>
-                      <div>
-                        <span>Phone</span>
-                        <strong>{student.phone || "Not provided"}</strong>
-                      </div>
-                      <div>
-                        <span>Email</span>
-                        <strong>{student.email || "Not provided"}</strong>
-                      </div>
-                      <div>
-                        <span>Total Paid</span>
-                        <strong>{money(student.totalPaid)}</strong>
-                      </div>
-                      <div>
-                        <span>Remaining</span>
-                        <strong>
-                          {money(
-                            Math.max(
-                              0,
-                              batch.full_amount - student.totalPaid,
-                            ),
-                          )}
-                        </strong>
-                      </div>
-                    </div>
-
-                    <div className="payment-history">
-                      <div className="history-heading">
-                        <h4>Payment history</h4>
-                        <span>Captured payments</span>
-                      </div>
-
-                      {student.payments.map((payment) => {
-                        const kind = getPaymentKind(
-                          payment,
-                          batch.advance_amount,
-                          batch.balance_amount,
-                          batch.full_amount,
-                        );
-
-                        return (
-                          <div
-                            className="payment-history-row"
-                            key={payment.id}
-                          >
-                            <div>
-                              <span className={`history-kind ${kind}`}>
-                                {kind === "advance"
-                                  ? "Advance"
-                                  : kind === "balance"
-                                    ? "Balance"
-                                    : kind === "full"
-                                      ? "Full"
-                                      : "Other"}
-                              </span>
-                              <strong>
-                                {payment.payment_id ||
-                                  "Payment ID unavailable"}
-                              </strong>
-                              <span>
-                                {payment.method
-                                  ? payment.method.toUpperCase()
-                                  : "Method unavailable"}
-                              </span>
-                            </div>
-
-                            <div className="history-right">
-                              <strong>
-                                {money(Number(payment.amount || 0))}
-                              </strong>
-                              <span>
-                                {payment.payment_time
-                                  ? new Date(
-                                      payment.payment_time,
-                                    ).toLocaleString("en-IN", {
-                                      day: "2-digit",
-                                      month: "short",
-                                      year: "numeric",
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })
-                                  : "—"}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
           </section>
         </>
       )}
@@ -1753,7 +1837,7 @@ function StatCard({
   label: string;
   value: string;
   detail: string;
-  accent?: "primary" | "advance" | "full";
+  accent?: "primary" | "advance" | "full" | "failed" | "no-payment";
 }) {
   return (
     <div className={`stat-card ${accent}`}>
@@ -2106,6 +2190,45 @@ function Styles() {
         border-bottom: 1px solid #202023;
       }
 
+      .student-toolbar-search {
+        flex: 1;
+        min-width: 260px;
+      }
+
+      .payment-sort-control {
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 10px;
+        border: 1px solid #29292d;
+        border-radius: 8px;
+        background: #101011;
+        color: #77777f;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .payment-sort-control svg {
+        flex: 0 0 auto;
+        color: #9a9aa2;
+      }
+
+      .payment-sort-control select {
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: #e7e7e9;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .payment-sort-control select option {
+        background: #151517;
+        color: #e7e7e9;
+      }
+
       .student-search {
         width: min(340px, 100%);
         height: 38px;
@@ -2315,6 +2438,16 @@ function Styles() {
       .student-detail-panel {
         border-top: 1px solid #202023;
         background: #0a0a0b;
+      }
+
+      .student-detail-inline-row > td {
+        padding: 0;
+        border-bottom: 1px solid #202023;
+        background: #0a0a0b;
+      }
+
+      .student-detail-inline-panel {
+        border-top: 0;
       }
 
       .student-detail-header {
@@ -2635,7 +2768,7 @@ function Styles() {
 
       .stats-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(5, minmax(0, 1fr));
       }
 
       .stat-card {
@@ -2667,6 +2800,14 @@ function Styles() {
 
       .stat-card.advance::before {
         background: #b83a50;
+      }
+
+      .stat-card.failed::before {
+        background: #d84a4a;
+      }
+
+      .stat-card.no-payment::before {
+        background: #66666d;
       }
 
       .stat-card.balance::before {
@@ -2864,12 +3005,17 @@ function Styles() {
           grid-template-columns: 1fr 1fr;
         }
 
-        .stat-card:nth-child(2) {
+        .stat-card {
+          border-right: 1px solid #202023;
+          border-bottom: 1px solid #202023;
+        }
+
+        .stat-card:nth-child(2n) {
           border-right: 0;
         }
 
-        .stat-card:nth-child(-n+2) {
-          border-bottom: 1px solid #202023;
+        .stat-card:last-child {
+          border-right: 0;
         }
 
         .student-toolbar {

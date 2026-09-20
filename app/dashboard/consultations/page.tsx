@@ -177,6 +177,9 @@ export default function ConsultationsPage() {
   const [selectedId, setSelectedId] =
     useState<string | null>(null);
 
+  const [showFollowUps, setShowFollowUps] =
+    useState(false);
+
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -196,9 +199,6 @@ export default function ConsultationsPage() {
   const [notesSaved, setNotesSaved] =
     useState(false);
 
-  const [showFollowUps, setShowFollowUps] =
-    useState(false);
-
   const [browserNotificationsEnabled, setBrowserNotificationsEnabled] =
     useState(false);
 
@@ -216,69 +216,198 @@ export default function ConsultationsPage() {
       setLoading(true);
       setLoadError("");
 
-      const { data, error } = await supabase
-        .from("consultations")
-        .select("*")
-        .order("booking_date", { ascending: true })
-        .order("booking_time", { ascending: true });
+      /*
+       * The page is payment-led:
+       * - A captured Consultation payment creates the person in this list.
+       * - If a matching consultation booking exists, show its slot and Scheduled status.
+       * - If no booking exists yet, keep the person visible with Pending booking/status.
+       */
+      const [paymentsResult, customersResult, consultationsResult] = await Promise.all([
+        supabase
+          .from("payments")
+          .select("id,payment_id,customer_id,amount,status,payment_time,payment_type,method,course,batch")
+          .eq("status", "captured")
+          .ilike("course", "Consultation")
+          .order("payment_time", { ascending: false }),
+        supabase
+          .from("customers")
+          .select("id,name,email,phone"),
+        supabase
+          .from("consultations")
+          .select("*")
+          .order("booking_date", { ascending: true })
+          .order("booking_time", { ascending: true }),
+      ]);
 
       if (cancelled) return;
 
-      if (error) {
-        console.error("Failed to load consultations:", error);
-        setLoadError(error.message);
+      if (paymentsResult.error) {
+        console.error("Failed to load consultation payments:", paymentsResult.error);
+        setLoadError(paymentsResult.error.message);
         setConsultations([]);
-      } else {
-        const rows = (data || []).map((row: any): Consultation => ({
-          id: String(row.id),
-          customerId: String(row.customer_id || ""),
-          studentName: String(row.student_name || "Unknown student"),
-          email: String(row.email || ""),
-          phone: String(row.phone || ""),
-          paymentId: String(row.payment_id || ""),
-          paymentAmount: Number(row.payment_amount || 0),
-          paymentStatus: (row.payment_status === "Paid" || row.payment_status === "Failed" ? row.payment_status : "Pending") as Consultation["paymentStatus"],
-          paymentTime: String(row.payment_time || ""),
-          bookingDate: String(row.booking_date || ""),
-          bookingTime: String(row.booking_time || ""),
-          status: (row.recording_link
-            ? "Completed"
-            : (["Pending", "Scheduled", "In Progress", "Completed", "Cancelled", "No Show"].includes(String(row.status))
-              ? String(row.status)
-              : "Scheduled")) as ConsultationStatus,
-          meetLink: String(row.meet_link || ""),
-          recordingLink: row.recording_link ? String(row.recording_link) : null,
-          notes: String(row.notes || ""),
-          followUpRequired: Boolean(row.follow_up_required),
-          followUpDate: row.follow_up_date ? String(row.follow_up_date) : null,
-          completedAt: row.completed_at ? String(row.completed_at) : null,
-        }));
+        setLoading(false);
+        return;
+      }
 
-        setConsultations(rows);
-        setSelectedId((current) => current && rows.some((item) => item.id === current) ? current : rows[0]?.id || null);
+      if (customersResult.error) {
+        console.error("Failed to load customers:", customersResult.error);
+        setLoadError(customersResult.error.message);
+        setConsultations([]);
+        setLoading(false);
+        return;
+      }
 
-        // A consultation with a recording is considered completed.
-        // Keep Supabase in sync as well, so the status remains Completed after refresh.
-        const recordedConsultations = rows.filter(
-          (item) => item.recordingLink && item.status === "Completed"
+      if (consultationsResult.error) {
+        console.error("Failed to load consultation bookings:", consultationsResult.error);
+        setLoadError(consultationsResult.error.message);
+        setConsultations([]);
+        setLoading(false);
+        return;
+      }
+
+      const customerMap = new Map<string, any>(
+        (customersResult.data || []).map((customer: any) => [String(customer.id), customer])
+      );
+
+      const bookingRows = consultationsResult.data || [];
+      const bookingByPaymentId = new Map<string, any>();
+      const bookingByCustomerId = new Map<string, any>();
+
+      bookingRows.forEach((row: any) => {
+        if (row.payment_id) {
+          bookingByPaymentId.set(String(row.payment_id), row);
+        }
+        if (row.customer_id) {
+          bookingByCustomerId.set(String(row.customer_id), row);
+        }
+      });
+
+      const rows = (paymentsResult.data || []).map((payment: any, index: number): Consultation => {
+        const paymentId = String(payment.payment_id || payment.id || "");
+        const customerId = String(payment.customer_id || "");
+        const customer = customerMap.get(customerId) || {};
+        const booking = bookingByPaymentId.get(paymentId) || bookingByCustomerId.get(customerId);
+        // A consultation record can exist without a booking slot (for example,
+        // historical/manual records). Treat any real consultation row as a
+        // consultation when it has status/completion/payment metadata, so a
+        // manually completed historical record does not fall back to Pending.
+        const hasBooking = Boolean(
+          booking &&
+          (
+            booking.booking_date ||
+            booking.booking_time ||
+            booking.meet_link ||
+            booking.status ||
+            booking.completed_at ||
+            booking.recording_link
+          )
         );
-        const needsCompletionSync = recordedConsultations.filter(
-          (item) => {
-            const originalRow = (data || []).find((row: any) => String(row.id) === item.id);
-            return String(originalRow?.status || "") !== "Completed";
-          }
-        );
 
-        if (needsCompletionSync.length > 0) {
-          const completedAt = new Date().toISOString();
-          const { error: completionSyncError } = await supabase
-            .from("consultations")
-            .update({ status: "Completed", completed_at: completedAt })
-            .in("id", needsCompletionSync.map((item) => item.id));
+        const rawBookingStatus = String(booking?.status || "");
+        const validBookingStatus = [
+          "Scheduled",
+          "In Progress",
+          "Completed",
+          "Cancelled",
+          "No Show",
+        ].includes(rawBookingStatus)
+          ? rawBookingStatus
+          : "Scheduled";
 
-          if (completionSyncError) {
-            console.error("Failed to sync recorded consultations as completed:", completionSyncError);
+        return {
+          id: String(booking?.id || payment.id || `${paymentId}-${index}`),
+          customerId,
+          studentName: String(
+            booking?.student_name || customer.name || "Unknown student"
+          ),
+          email: String(booking?.email || customer.email || ""),
+          phone: String(booking?.phone || customer.phone || ""),
+          paymentId,
+          paymentAmount: Number(payment.amount || booking?.payment_amount || 0),
+          paymentStatus: "Paid",
+          paymentTime: String(payment.payment_time || booking?.payment_time || ""),
+          bookingDate: hasBooking ? String(booking?.booking_date || "") : "",
+          bookingTime: hasBooking ? String(booking?.booking_time || "") : "",
+          status: hasBooking ? (booking?.recording_link ? "Completed" : validBookingStatus) as ConsultationStatus : "Pending",
+          meetLink: String(booking?.meet_link || ""),
+          recordingLink: booking?.recording_link ? String(booking.recording_link) : null,
+          notes: String(booking?.notes || ""),
+          followUpRequired: Boolean(booking?.follow_up_required),
+          followUpDate: booking?.follow_up_date ? String(booking.follow_up_date) : null,
+          completedAt: booking?.completed_at ? String(booking.completed_at) : null,
+        };
+      });
+
+      // Always show the latest CONSULTATION date/time first.
+      // Do not use new Date(`${date}T${time}`) here because booking_time can
+      // be stored as a 12-hour value such as "09:30 AM", which makes that
+      // ISO string invalid in JavaScript and incorrectly falls back to payment time.
+      rows.sort((a, b) => {
+        const getSortKey = (item: Consultation) => {
+          // Prefer the actual consultation/booking date.
+          if (item.bookingDate) {
+            let minutes = 0;
+            const rawTime = String(item.bookingTime || "").trim();
+
+            if (rawTime) {
+              const match12 = rawTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+              const match24 = rawTime.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+
+              if (match12) {
+                let hour = Number(match12[1]);
+                const minute = Number(match12[2]);
+                const period = match12[3].toUpperCase();
+                if (hour === 12) hour = 0;
+                if (period === "PM") hour += 12;
+                minutes = hour * 60 + minute;
+              } else if (match24) {
+                minutes = Number(match24[1]) * 60 + Number(match24[2]);
+              }
+            }
+
+            // YYYY-MM-DD sorts chronologically as a string.
+            return `${item.bookingDate}T${String(minutes).padStart(4, "0")}`;
           }
+
+          // Rows without a consultation date fall back to payment timestamp.
+          const paymentTime = item.paymentTime
+            ? new Date(item.paymentTime).getTime()
+            : 0;
+          return Number.isFinite(paymentTime) ? paymentTime : 0;
+        };
+
+        const aKey = getSortKey(a);
+        const bKey = getSortKey(b);
+
+        if (typeof aKey === "string" && typeof bKey === "string") {
+          return bKey.localeCompare(aKey);
+        }
+        if (typeof aKey === "string") return -1;
+        if (typeof bKey === "string") return 1;
+        return bKey - aKey;
+      });
+
+      setConsultations(rows);
+      // IMPORTANT: do not auto-select a user. Details appear only after clicking a row.
+      setSelectedId((current) => current && rows.some((item) => item.id === current) ? current : null);
+
+      // Keep recorded bookings synchronized as Completed.
+      const needsCompletionSync = rows.filter(
+        (item) => item.recordingLink && item.status === "Completed"
+      ).filter((item) => {
+        const originalRow = bookingRows.find((row: any) => String(row.id) === item.id);
+        return originalRow && String(originalRow.status || "") !== "Completed";
+      });
+
+      if (needsCompletionSync.length > 0) {
+        const completedAt = new Date().toISOString();
+        const { error: completionSyncError } = await supabase
+          .from("consultations")
+          .update({ status: "Completed", completed_at: completedAt })
+          .in("id", needsCompletionSync.map((item) => item.id));
+
+        if (completionSyncError) {
+          console.error("Failed to sync recorded consultations as completed:", completionSyncError);
         }
       }
 
@@ -354,12 +483,10 @@ export default function ConsultationsPage() {
 
           if (dateFilter === "Upcoming") {
             matchesDate =
-              consultation.bookingDate >=
-                todayString &&
-              consultation.status !==
-                "Completed" &&
-              consultation.status !==
-                "Cancelled";
+              Boolean(consultation.bookingDate) &&
+              consultation.bookingDate >= todayString &&
+              consultation.status !== "Completed" &&
+              consultation.status !== "Cancelled";
           }
 
           if (dateFilter === "Past") {
@@ -684,20 +811,6 @@ export default function ConsultationsPage() {
           box-shadow: 0 10px 30px rgba(255, 23, 68, 0.22);
         }
 
-        .follow-up-stat {
-          position: relative;
-          text-align: left;
-          border: 1px solid rgba(255, 255, 255, .08);
-          cursor: pointer;
-          color: white;
-          font: inherit;
-        }
-
-        .follow-up-stat.has-due {
-          border-color: rgba(255, 23, 68, .38);
-          box-shadow: 0 0 24px rgba(255, 23, 68, .08);
-        }
-
         .stat-subtext {
           margin-top: 6px;
           color: #777f8b;
@@ -739,8 +852,7 @@ export default function ConsultationsPage() {
           align-items: center;
         }
 
-        .notification-button,
-        .close-followups {
+        .notification-button {
           height: 32px;
           border: 1px solid rgba(255, 255, 255, .1);
           background: #111317;
@@ -754,32 +866,6 @@ export default function ConsultationsPage() {
         .notification-button.enabled {
           border-color: rgba(255, 23, 68, .4);
           color: #ff6b86;
-        }
-
-        .follow-up-alert {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          margin: 13px 17px 0;
-          padding: 11px 12px;
-          background: rgba(255, 23, 68, .08);
-          border: 1px solid rgba(255, 23, 68, .16);
-          border-radius: 8px;
-          color: #e7eaf0;
-          font-size: 11px;
-        }
-
-        .follow-up-alert span:not(.follow-up-alert-dot) {
-          color: #a9afb8;
-        }
-
-        .follow-up-alert-dot {
-          width: 8px;
-          height: 8px;
-          flex: 0 0 8px;
-          border-radius: 50%;
-          background: #ff1744;
-          box-shadow: 0 0 12px rgba(255, 23, 68, .7);
         }
 
         .follow-up-groups {
@@ -1145,6 +1231,11 @@ export default function ConsultationsPage() {
           color: #6f7782;
           font-size: 10px;
           margin-top: 2px;
+        }
+
+        .pending-booking {
+          color: #fcd34d;
+          font-weight: 700;
         }
 
         .payment-amount,
@@ -1787,8 +1878,7 @@ export default function ConsultationsPage() {
             width: 100%;
           }
 
-          .notification-button,
-          .close-followups {
+          .notification-button {
             flex: 1;
           }
 
@@ -1799,20 +1889,6 @@ export default function ConsultationsPage() {
           .consultation-page {
             padding: 15px;
           }
-
-          .follow-up-stat {
-          position: relative;
-          text-align: left;
-          border: 1px solid rgba(255, 255, 255, .08);
-          cursor: pointer;
-          color: white;
-          font: inherit;
-        }
-
-        .follow-up-stat.has-due {
-          border-color: rgba(255, 23, 68, .38);
-          box-shadow: 0 0 24px rgba(255, 23, 68, .08);
-        }
 
         .stat-subtext {
           margin-top: 6px;
@@ -1855,8 +1931,7 @@ export default function ConsultationsPage() {
           align-items: center;
         }
 
-        .notification-button,
-        .close-followups {
+        .notification-button {
           height: 32px;
           border: 1px solid rgba(255, 255, 255, .1);
           background: #111317;
@@ -1870,32 +1945,6 @@ export default function ConsultationsPage() {
         .notification-button.enabled {
           border-color: rgba(255, 23, 68, .4);
           color: #ff6b86;
-        }
-
-        .follow-up-alert {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          margin: 13px 17px 0;
-          padding: 11px 12px;
-          background: rgba(255, 23, 68, .08);
-          border: 1px solid rgba(255, 23, 68, .16);
-          border-radius: 8px;
-          color: #e7eaf0;
-          font-size: 11px;
-        }
-
-        .follow-up-alert span:not(.follow-up-alert-dot) {
-          color: #a9afb8;
-        }
-
-        .follow-up-alert-dot {
-          width: 8px;
-          height: 8px;
-          flex: 0 0 8px;
-          border-radius: 50%;
-          background: #ff1744;
-          box-shadow: 0 0 12px rgba(255, 23, 68, .7);
         }
 
         .follow-up-groups {
@@ -2014,19 +2063,6 @@ export default function ConsultationsPage() {
         }
 
         @media (max-width: 500px) {
-          .follow-up-stat {
-          position: relative;
-          text-align: left;
-          border: 1px solid rgba(255, 255, 255, .08);
-          cursor: pointer;
-          color: white;
-          font: inherit;
-        }
-
-        .follow-up-stat.has-due {
-          border-color: rgba(255, 23, 68, .38);
-          box-shadow: 0 0 24px rgba(255, 23, 68, .08);
-        }
 
         .stat-subtext {
           margin-top: 6px;
@@ -2069,8 +2105,7 @@ export default function ConsultationsPage() {
           align-items: center;
         }
 
-        .notification-button,
-        .close-followups {
+        .notification-button {
           height: 32px;
           border: 1px solid rgba(255, 255, 255, .1);
           background: #111317;
@@ -2084,32 +2119,6 @@ export default function ConsultationsPage() {
         .notification-button.enabled {
           border-color: rgba(255, 23, 68, .4);
           color: #ff6b86;
-        }
-
-        .follow-up-alert {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          margin: 13px 17px 0;
-          padding: 11px 12px;
-          background: rgba(255, 23, 68, .08);
-          border: 1px solid rgba(255, 23, 68, .16);
-          border-radius: 8px;
-          color: #e7eaf0;
-          font-size: 11px;
-        }
-
-        .follow-up-alert span:not(.follow-up-alert-dot) {
-          color: #a9afb8;
-        }
-
-        .follow-up-alert-dot {
-          width: 8px;
-          height: 8px;
-          flex: 0 0 8px;
-          border-radius: 50%;
-          background: #ff1744;
-          box-shadow: 0 0 12px rgba(255, 23, 68, .7);
         }
 
         .follow-up-groups {
@@ -2251,16 +2260,18 @@ export default function ConsultationsPage() {
 
           </div>
 
-          <button
-            className="primary-button"
-            onClick={() =>
-              alert(
-                "New consultation will use your existing Google Form booking workflow."
-              )
-            }
-          >
-            + New Consultation
-          </button>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <button
+              className="primary-button"
+              onClick={() =>
+                alert(
+                  "New consultation will use your existing Google Form booking workflow."
+                )
+              }
+            >
+              + New Consultation
+            </button>
+          </div>
 
         </div>
 
@@ -2352,20 +2363,22 @@ export default function ConsultationsPage() {
 
           <button
             type="button"
-            className={`stat-card follow-up-stat ${dueFollowUpCount > 0 ? "has-due" : ""}`}
-            onClick={() => setShowFollowUps((value) => !value)}
+            className={`stat-card follow-up-stat ${followUps.length > 0 ? "has-due" : ""}`}
+            onClick={() => setShowFollowUps((current) => !current)}
           >
             <div className="stat-top">
-              <div className="stat-label">Follow-ups Due</div>
-              <div className="stat-icon">↗</div>
+              <div className="stat-label">
+                Follow-ups
+              </div>
+              <div className="stat-icon">
+                ↗
+              </div>
             </div>
-            <div className="stat-number">{dueFollowUpCount}</div>
+            <div className="stat-number">
+              {followUps.length}
+            </div>
             <div className="stat-subtext">
-              {overdueFollowUps.length > 0
-                ? `${overdueFollowUps.length} overdue`
-                : todayFollowUps.length > 0
-                  ? "Due today"
-                  : "No follow-ups due"}
+              {showFollowUps ? "Hide follow-ups" : "View active follow-ups"}
             </div>
           </button>
 
@@ -2375,7 +2388,7 @@ export default function ConsultationsPage() {
             FOLLOW-UP CENTER
         ===================================================== */}
 
-        {showFollowUps && (
+        {followUps.length > 0 && showFollowUps && (
           <div className="follow-up-center">
             <div className="follow-up-center-header">
               <div>
@@ -2392,29 +2405,11 @@ export default function ConsultationsPage() {
                 >
                   {browserNotificationsEnabled ? "✓ Browser Alerts On" : "Enable Browser Alerts"}
                 </button>
-                <button
-                  type="button"
-                  className="close-followups"
-                  onClick={() => setShowFollowUps(false)}
-                >
-                  Close
-                </button>
+
               </div>
             </div>
 
-            {dueFollowUpCount > 0 && (
-              <div className="follow-up-alert">
-                <span className="follow-up-alert-dot" />
-                <div>
-                  <strong>{dueFollowUpCount} follow-up{dueFollowUpCount === 1 ? "" : "s"} need attention.</strong>
-                  <span>
-                    {overdueFollowUps.length > 0
-                      ? ` ${overdueFollowUps.length} overdue${todayFollowUps.length ? `, ${todayFollowUps.length} due today.` : "."}`
-                      : ` ${todayFollowUps.length} due today.`}
-                  </span>
-                </div>
-              </div>
-            )}
+
 
             <div className="follow-up-groups">
               {[
@@ -2436,7 +2431,6 @@ export default function ConsultationsPage() {
                         key={item.id}
                         onClick={() => {
                           setSelectedId(item.id);
-                          setShowFollowUps(false);
                         }}
                       >
                         <div className="follow-up-item-avatar">{getInitials(item.studentName)}</div>
@@ -2664,6 +2658,10 @@ export default function ConsultationsPage() {
                           <th>
                             Meeting
                           </th>
+
+                          <th>
+                            Watch Recording
+                          </th>
 </tr>
 
                       </thead>
@@ -2739,22 +2737,25 @@ export default function ConsultationsPage() {
 
                               </td>
 
-                              {/* BOOKING */}
+                              {/* CONSULTATION SLOT */}
 
                               <td>
-
-                                <div className="booking-date">
-                                  {formatDate(
-                                    consultation.bookingDate
-                                  )}
-                                </div>
-
-                                <div className="booking-time">
-                                  {
-                                    consultation.bookingTime
-                                  }
-                                </div>
-
+                                {consultation.status === "Pending" ||
+                                !consultation.bookingDate ||
+                                !consultation.bookingTime ? (
+                                  <div className="booking-time pending-booking">
+                                    Pending
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="booking-date">
+                                      {formatDate(consultation.bookingDate)}
+                                    </div>
+                                    <div className="booking-time">
+                                      {consultation.bookingTime}
+                                    </div>
+                                  </>
+                                )}
                               </td>
 
                               {/* STATUS */}
@@ -3121,19 +3122,19 @@ export default function ConsultationsPage() {
                     </div>
 
                     <div className="info-value">
-                      {formatDate(
-                        selectedConsultation.bookingDate
-                      )}
+                      {selectedConsultation.bookingDate
+                        ? formatDate(selectedConsultation.bookingDate)
+                        : "Pending"}
                     </div>
                   </div>
 
                   <div className="info-item">
                     <div className="info-label">
-                      Booking Time
+                      Consultation Time
                     </div>
 
                     <div className="info-value">
-                      {selectedConsultation.bookingTime}
+                      {selectedConsultation.bookingTime || "Pending"}
                     </div>
                   </div>
 
@@ -3178,8 +3179,8 @@ export default function ConsultationsPage() {
                       Status
                     </div>
 
-                    <div className="info-value success">
-                      ✓ {selectedConsultation.paymentStatus}
+                    <div className={`info-value ${selectedConsultation.paymentStatus === "Paid" ? "success" : ""}`}>
+                      {selectedConsultation.paymentStatus === "Paid" ? "✓ " : ""}{selectedConsultation.paymentStatus}
                     </div>
                   </div>
 
@@ -3189,12 +3190,9 @@ export default function ConsultationsPage() {
                     </div>
 
                     <div className="info-value">
-                      {formatDate(
-                        selectedConsultation.paymentTime.slice(
-                          0,
-                          10
-                        )
-                      )}
+                      {selectedConsultation.paymentTime
+                        ? formatDate(selectedConsultation.paymentTime.slice(0, 10))
+                        : "—"}
                     </div>
                   </div>
 
@@ -3204,15 +3202,12 @@ export default function ConsultationsPage() {
                     </div>
 
                     <div className="info-value">
-                      {new Date(
-                        selectedConsultation.paymentTime
-                      ).toLocaleTimeString(
-                        "en-IN",
-                        {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        }
-                      )}
+                      {selectedConsultation.paymentTime
+                        ? new Date(selectedConsultation.paymentTime).toLocaleTimeString("en-IN", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : "—"}
                     </div>
                   </div>
 

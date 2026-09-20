@@ -200,12 +200,26 @@ export default function CourseDetailsPage() {
       return;
     }
 
-    const nextBatches = (batchesResult.data || []) as Batch[];
+    const nextBatches = ((batchesResult.data || []) as Batch[]).sort((a, b) => {
+      const aNumber = Number(String(a.name).match(/\d+/)?.[0] ?? NaN);
+      const bNumber = Number(String(b.name).match(/\d+/)?.[0] ?? NaN);
+
+      // Numeric batch names are ordered highest → lowest (e.g. 06, 05, 04, 03...).
+      if (Number.isFinite(aNumber) && Number.isFinite(bNumber)) {
+        return bNumber - aNumber;
+      }
+
+      // Keep non-numeric batch names deterministic.
+      return String(b.name).localeCompare(String(a.name), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+    });
+
     setBatches(nextBatches);
 
-    // Course + batch membership is calculated from BOTH customers and
-    // payment-level routing data. Payment-level course/batch is historical
-    // and therefore remains correct even if a customer later changes batch.
+    // Course + batch membership is calculated from CAPTURED payment-level
+    // routing data. Failed/pending/unpaid customers are never counted.
     const [{ data: customerRows, error: customersError }, { data: paymentRows, error: paymentsError }] =
       await Promise.all([
         supabase
@@ -217,8 +231,8 @@ export default function CourseDetailsPage() {
           .from("payments")
           .select("id,payment_id,customer_id,amount,status,payment_time,payment_type,course,batch")
           .ilike("course", courseData.name)
-          .order("payment_time", { ascending: false })
-          .limit(500),
+          .eq("status", "captured")
+          .order("payment_time", { ascending: false }),
       ]);
 
     if (customersError) {
@@ -228,16 +242,27 @@ export default function CourseDetailsPage() {
     } else if (paymentsError) {
       setError(paymentsError.message);
       setStudentCounts({});
-      setCourseStudentCount((customerRows || []).length);
+      setCourseStudentCount(0);
+      setCoursePayments([]);
+      setCourseStudents([]);
     } else {
       const customers = customerRows || [];
       const payments = (paymentRows || []) as CoursePayment[];
 
       setCoursePayments(payments);
 
-      const courseStudentIds = new Set<string>();
+      // IMPORTANT:
+      // A student is counted ONLY when they have at least one captured
+      // payment for this course. Failed, pending, cancelled, or unpaid
+      // customer records are never counted.
+      // Count CAPTURED PAYMENT RECORDS, not unique students.
+      // A customer with multiple captured payments contributes one count
+      // for each captured payment.
+      let coursePaymentCount = 0;
       const studentMap = new Map<string, CourseStudent>();
 
+      // Load customer information for display, but do NOT count customers
+      // yet. They become students only after a captured payment is found.
       customers.forEach((row) => {
         if (!row.id) return;
 
@@ -253,13 +278,15 @@ export default function CourseDetailsPage() {
           totalPaid: 0,
           lastPaymentTime: null,
         });
-        courseStudentIds.add(row.id);
       });
 
+      // The database query is already restricted to captured payments.
+      // Keep this status check as a second safety guard.
       payments.forEach((payment) => {
         if (!payment.customer_id) return;
+        if (String(payment.status || "").toLowerCase() !== "captured") return;
 
-        courseStudentIds.add(payment.customer_id);
+        coursePaymentCount += 1;
 
         const existing = studentMap.get(payment.customer_id) || {
           id: payment.customer_id,
@@ -274,63 +301,56 @@ export default function CourseDetailsPage() {
           lastPaymentTime: null,
         };
 
-        if (String(payment.status || "").toLowerCase() === "captured") {
-          existing.paymentCount += 1;
-          existing.totalPaid += Number(payment.amount || 0);
-          if (payment.payment_time && (!existing.lastPaymentTime || new Date(payment.payment_time).getTime() > new Date(existing.lastPaymentTime).getTime())) {
-            existing.lastPaymentTime = payment.payment_time;
-          }
+        existing.paymentCount += 1;
+        existing.totalPaid += Number(payment.amount || 0);
 
-          // Consultation is course-level, so the display batch is always No Batch.
-          if (normalize(payment.course) === "consultation") {
-            existing.batch = null;
-          } else if (!existing.batch && payment.batch) {
-            existing.batch = payment.batch;
-          }
+        if (
+          payment.payment_time &&
+          (!existing.lastPaymentTime ||
+            new Date(payment.payment_time).getTime() >
+              new Date(existing.lastPaymentTime).getTime())
+        ) {
+          existing.lastPaymentTime = payment.payment_time;
+        }
+
+        // Consultation is course-level, so the display batch is always No Batch.
+        if (normalize(payment.course) === "consultation") {
+          existing.batch = null;
+        } else if (payment.batch) {
+          existing.batch = payment.batch;
         }
 
         studentMap.set(payment.customer_id, existing);
       });
 
-      // Keep students ordered by their most recent captured payment.
-      // Newest payment appears first; students without a payment stay at the bottom.
+      // Only students with at least one captured payment are displayed.
+      // Failed-only / pending-only / unpaid customers are excluded.
       setCourseStudents(
-        Array.from(studentMap.values()).sort((a, b) => {
-          const aTime = a.lastPaymentTime ? new Date(a.lastPaymentTime).getTime() : 0;
-          const bTime = b.lastPaymentTime ? new Date(b.lastPaymentTime).getTime() : 0;
-          return bTime - aTime;
-        }),
+        Array.from(studentMap.values())
+          .filter((student) => student.paymentCount > 0)
+          .sort((a, b) => {
+            const aTime = a.lastPaymentTime
+              ? new Date(a.lastPaymentTime).getTime()
+              : 0;
+            const bTime = b.lastPaymentTime
+              ? new Date(b.lastPaymentTime).getTime()
+              : 0;
+            return bTime - aTime;
+          }),
       );
 
       const counts: Record<string, number> = {};
-      const batchStudentSets: Record<string, Set<string>> = {};
 
       nextBatches.forEach((batch) => {
         counts[batch.id] = 0;
-        batchStudentSets[batch.id] = new Set<string>();
       });
 
-      // Existing customer membership remains visible, including customers
-      // who have not paid yet.
-      customers.forEach((row) => {
-        if (!row.id) return;
-
-        courseStudentIds.add(row.id);
-
-        const matchingBatch = nextBatches.find(
-          (batch) => normalize(batch.name) === normalize(row.batch),
-        );
-
-        if (matchingBatch) {
-          batchStudentSets[matchingBatch.id].add(row.id);
-        }
-      });
-
-      // Payment routing is authoritative for historical transactions.
+      // Batch counts are CAPTURED PAYMENT counts.
+      // Every captured payment is counted individually, even when the same
+      // customer has multiple captured payments. Failed/pending/unpaid
+      // records never reach this loop because the query is filtered to
+      // status = captured, and the defensive status check remains below.
       payments.forEach((payment) => {
-        if (!payment.customer_id) return;
-        courseStudentIds.add(payment.customer_id);
-
         if (String(payment.status || "").toLowerCase() !== "captured") return;
 
         const matchingBatch = nextBatches.find(
@@ -340,16 +360,12 @@ export default function CourseDetailsPage() {
         );
 
         if (matchingBatch) {
-          batchStudentSets[matchingBatch.id].add(payment.customer_id);
+          counts[matchingBatch.id] += 1;
         }
       });
 
-      nextBatches.forEach((batch) => {
-        counts[batch.id] = batchStudentSets[batch.id].size;
-      });
-
       setStudentCounts(counts);
-      setCourseStudentCount(courseStudentIds.size);
+      setCourseStudentCount(coursePaymentCount);
     }
 
     setLoading(false);
@@ -781,7 +797,7 @@ export default function CourseDetailsPage() {
               <div className="course-level-stats">
                 <div>
                   <span className="stat-icon students"><Users size={21} /></span>
-                  <small>Total Students</small>
+                  <small>Total Payments</small>
                   <strong>{courseStudentCount.toLocaleString("en-IN")}</strong>
                 </div>
                 <div>
@@ -1031,7 +1047,7 @@ export default function CourseDetailsPage() {
                       <div className="detail-item">
                         <Users size={17} />
                         <span>
-                          <small>Students</small>
+                          <small>Payments</small>
                           <strong>{studentCount}</strong>
                         </span>
                       </div>
