@@ -1,5 +1,5 @@
-
 import { createClient } from "@/lib/supabase/server";
+import { processEmailJobById } from "@/lib/automations/email-worker";
 
 type PaymentData = {
   id: string;
@@ -527,6 +527,43 @@ export async function queueEmailAutomationsForPayment(
       "Email automation trigger counter error:",
       counterError,
     );
+  }
+
+  /*
+   * IMMEDIATE EMAIL
+   *
+   * When delay_minutes is 0, process the job immediately.
+   *
+   * This means immediate payment emails do not depend
+   * on Vercel Cron or an external cron service.
+   *
+   * Delayed emails remain in automation_jobs and are
+   * processed later by:
+   *
+   * /api/automations/email/process
+   */
+  if (delayMinutes === 0) {
+    try {
+      const result = await processEmailJobById(
+        insertedJob.id,
+      );
+
+      console.log(
+        `Immediate email processing completed for job ${insertedJob.id}:`,
+        result,
+      );
+    } catch (error) {
+      /*
+       * If the immediate worker cannot start,
+       * leave the job in the queue.
+       *
+       * The scheduled processor can pick it up later.
+       */
+      console.error(
+        `Immediate email processing failed for job ${insertedJob.id}:`,
+        error,
+      );
+    }
   }
 
   return {
