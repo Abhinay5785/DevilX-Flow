@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 
@@ -217,7 +216,6 @@ function followUpBucket(dateString: string | null, today: string) {
 
 export default function ConsultationsPage() {
   const supabase = createClient();
-  const searchParams = useSearchParams();
 
   const [consultations, setConsultations] =
     useState<Consultation[]>([]);
@@ -240,9 +238,14 @@ export default function ConsultationsPage() {
     useState("All");
 
   const [tableMode, setTableMode] =
-    useState<TableMode>(() =>
-      searchParams.get("view") === "upcoming" ? "upcoming" : "payments"
-    );
+    useState<TableMode>(() => {
+      if (typeof window === "undefined") return "payments";
+
+      return new URLSearchParams(window.location.search).get("view") ===
+        "upcoming"
+        ? "upcoming"
+        : "payments";
+    });
 
   const [view, setView] =
     useState<"list" | "calendar">("list");
@@ -265,10 +268,13 @@ export default function ConsultationsPage() {
 
   const perPage = 15;
 
-  // Dashboard links can open this page directly with ?view=upcoming.
-  // Keep the visible table mode synchronized with that URL parameter.
+  // Dashboard links open this page with ?view=upcoming.
+  // Read the query string in an effect instead of useSearchParams(), so
+  // Next.js can prerender this client page without requiring Suspense.
   useEffect(() => {
-    const requestedView = searchParams.get("view");
+    const requestedView = new URLSearchParams(window.location.search).get(
+      "view",
+    );
 
     if (requestedView === "upcoming") {
       setTableMode("upcoming");
@@ -279,7 +285,7 @@ export default function ConsultationsPage() {
     } else if (!requestedView) {
       setTableMode("payments");
     }
-  }, [searchParams]);
+  }, []);
 
   /* =======================================================
      LIVE SUPABASE DATA
