@@ -1,3 +1,4 @@
+
 import { createClient } from "@/lib/supabase/server";
 
 type PaymentData = {
@@ -460,7 +461,7 @@ export async function queueEmailAutomationsForPayment(
     await supabase.from("automation_logs").insert({
       automation_id: automation.id,
       payment_id: typedPayment.id,
-      recipient_name: recipientName || null,
+      recipient_name: recipientName,
       recipient_email: recipientEmail,
       status: "failed",
       triggered_at: new Date().toISOString(),
@@ -496,7 +497,7 @@ export async function queueEmailAutomationsForPayment(
   await supabase.from("automation_logs").insert({
     automation_id: automation.id,
     payment_id: typedPayment.id,
-    recipient_name: recipientName || null,
+    recipient_name: recipientName,
     recipient_email: recipientEmail,
     status: logStatus,
     triggered_at: new Date().toISOString(),
@@ -505,11 +506,13 @@ export async function queueEmailAutomationsForPayment(
   });
 
   // Keep the trigger counter in sync through the existing Supabase RPC.
+  // IMPORTANT: The PostgreSQL function expects the parameter
+  // "automation_id_input", not "automation_id".
   try {
     const { error: counterError } = await supabase.rpc(
       "increment_email_automation_triggered",
       {
-        automation_id: automation.id,
+        automation_id_input: automation.id,
       },
     );
 
