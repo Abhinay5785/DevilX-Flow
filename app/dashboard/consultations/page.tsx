@@ -28,6 +28,8 @@ type Consultation = {
   phone: string;
 
   /* PAYMENT */
+  // Exact payments.id row. This is the payment identity sent to the server.
+  paymentRecordId: string;
   paymentId: string;
   paymentAmount: number;
   paymentStatus: "Paid" | "Pending" | "Failed";
@@ -255,6 +257,11 @@ export default function ConsultationsPage() {
   const [notesSaved, setNotesSaved] =
     useState(false);
 
+  const [showManualComplete, setShowManualComplete] = useState(false);
+  const [manualDate, setManualDate] = useState("");
+  const [manualTime, setManualTime] = useState("");
+  const [manualSaving, setManualSaving] = useState(false);
+
   const [browserNotificationsEnabled, setBrowserNotificationsEnabled] =
     useState(false);
 
@@ -352,15 +359,28 @@ export default function ConsultationsPage() {
       );
 
       const bookingRows = consultationsResult.data || [];
+
+      /*
+       * IMPORTANT:
+       * A customer can have MULTIPLE consultations.
+       * Therefore a consultation must NEVER be selected by customer_id alone.
+       *
+       * Every captured Consultation payment is treated as its own consultation
+       * slot. The only safe automatic relationship is:
+       *
+       *     payments.payment_id  ->  consultations.payment_id
+       *
+       * We intentionally do NOT keep a bookingByCustomerId fallback because
+       * that would make two different payments for the same person point to
+       * the same consultation record.
+       */
       const bookingByPaymentId = new Map<string, any>();
-      const bookingByCustomerId = new Map<string, any>();
 
       bookingRows.forEach((row: any) => {
-        if (row.payment_id) {
-          bookingByPaymentId.set(String(row.payment_id), row);
-        }
-        if (row.customer_id) {
-          bookingByCustomerId.set(String(row.customer_id), row);
+        const paymentId = String(row.payment_id || "").trim();
+
+        if (paymentId) {
+          bookingByPaymentId.set(paymentId, row);
         }
       });
 
@@ -368,22 +388,13 @@ export default function ConsultationsPage() {
         const paymentId = String(payment.payment_id || payment.id || "");
         const customerId = String(payment.customer_id || "");
         const customer = customerMap.get(customerId) || {};
-        const booking = bookingByPaymentId.get(paymentId) || bookingByCustomerId.get(customerId);
-        // A consultation record can exist without a booking slot (for example,
-        // historical/manual records). Treat any real consultation row as a
-        // consultation when it has status/completion/payment metadata, so a
-        // manually completed historical record does not fall back to Pending.
-        const hasBooking = Boolean(
-          booking &&
-          (
-            booking.booking_date ||
-            booking.booking_time ||
-            booking.meet_link ||
-            booking.status ||
-            booking.completed_at ||
-            booking.recording_link
-          )
-        );
+
+        // IMPORTANT: match the consultation ONLY to this payment.
+        // Never fall back to customer_id because one person can purchase
+        // multiple consultations and each payment must represent a separate
+        // consultation slot.
+        const booking = bookingByPaymentId.get(paymentId);
+        const hasBooking = Boolean(booking);
 
         const rawBookingStatus = String(booking?.status || "");
         const validBookingStatus = [
@@ -410,7 +421,11 @@ export default function ConsultationsPage() {
           paymentTimestamp < AUTO_COMPLETE_PAYMENT_CUTOFF;
 
         return {
+          // Keep every payment as a distinct UI row. A booking ID is used when
+          // the payment already has a consultation record; otherwise the
+          // payment's own database ID identifies this payment-only row.
           id: String(booking?.id || payment.id || `${paymentId}-${index}`),
+          paymentRecordId: String(payment.id || ""),
           customerId,
           studentName: String(
             booking?.student_name || customer.name || "Unknown student"
@@ -455,45 +470,71 @@ export default function ConsultationsPage() {
       // IMPORTANT: do not auto-select a user. Details appear only after clicking a row.
       setSelectedId((current) => current && rows.some((item) => item.id === current) ? current : null);
 
-      // Keep recorded bookings synchronized as Completed, and automatically
-      // mark every Consultation payment made before 10 Sep 2026 as Completed.
-      const historicalRowsToComplete = rows.filter((item) => {
-        const paymentTimestamp = item.paymentTime
-          ? new Date(item.paymentTime).getTime()
-          : null;
-
-        return (
-          paymentTimestamp !== null &&
-          Number.isFinite(paymentTimestamp) &&
-          paymentTimestamp < AUTO_COMPLETE_PAYMENT_CUTOFF
-        );
-      });
-
-      const recordedRowsToComplete = rows.filter(
-        (item) => item.recordingLink && item.status === "Completed"
-      ).filter((item) => {
-        const originalRow = bookingRows.find(
-          (row: any) => String(row.id) === item.id
-        );
-        return originalRow && String(originalRow.status || "") !== "Completed";
-      });
+      /*
+       * IMPORTANT:
+       * Only update REAL consultation row IDs here.
+       *
+       * A payment-only row uses payment.id as its UI fallback ID when
+       * no consultation booking exists. That is NOT a consultations.id.
+       * Updating it could silently affect nothing and make the UI look
+       * completed until the next refresh.
+       *
+       * Also never downgrade a manually selected terminal status such as
+       * Completed, Cancelled or No Show.
+       */
+      const bookingRowsById = new Map(
+        bookingRows.map((row: any) => [String(row.id), row])
+      );
 
       const idsToComplete = Array.from(
-        new Set([
-          ...historicalRowsToComplete.map((item) => String(item.id)),
-          ...recordedRowsToComplete.map((item) => String(item.id)),
-        ])
-      ).filter(Boolean);
+        new Set(
+          rows
+            .filter((item) => {
+              const originalRow = bookingRowsById.get(String(item.id));
+
+              if (!originalRow) return false;
+
+              const originalStatus = String(originalRow.status || "");
+
+              if (
+                originalStatus === "Completed" ||
+                originalStatus === "Cancelled" ||
+                originalStatus === "No Show"
+              ) {
+                return false;
+              }
+
+              const paymentTimestamp = item.paymentTime
+                ? new Date(item.paymentTime).getTime()
+                : null;
+
+              const historicalPayment =
+                paymentTimestamp !== null &&
+                Number.isFinite(paymentTimestamp) &&
+                paymentTimestamp < AUTO_COMPLETE_PAYMENT_CUTOFF;
+
+              const recordedCompleted =
+                Boolean(item.recordingLink) &&
+                item.status === "Completed";
+
+              return historicalPayment || recordedCompleted;
+            })
+            .map((item) => String(item.id))
+            .filter(Boolean)
+        )
+      );
 
       if (idsToComplete.length > 0) {
         const completedAt = new Date().toISOString();
+
         const { error: completionSyncError } = await supabase
           .from("consultations")
           .update({
             status: "Completed",
             completed_at: completedAt,
           })
-          .in("id", idsToComplete);
+          .in("id", idsToComplete)
+          .select("id");
 
         if (completionSyncError) {
           console.error(
@@ -852,29 +893,495 @@ export default function ConsultationsPage() {
      COMPLETE
   ======================================================= */
 
-  async function completeConsultation() {
+  function openManualComplete() {
     if (!selectedConsultation) return;
 
+    // Default to today and the current IST time, but let the user change it.
+    const now = new Date();
+    const istParts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(now);
+
+    const year = istParts.find((part) => part.type === "year")?.value || "";
+    const month = istParts.find((part) => part.type === "month")?.value || "";
+    const day = istParts.find((part) => part.type === "day")?.value || "";
+
+    const timeParts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(now);
+
+    const hour = timeParts.find((part) => part.type === "hour")?.value || "12";
+    const minute = timeParts.find((part) => part.type === "minute")?.value || "00";
+
+    setManualDate(selectedConsultation.bookingDate || `${year}-${month}-${day}`);
+    setManualTime(
+      selectedConsultation.bookingTime
+        ? (() => {
+            const match12 = selectedConsultation.bookingTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+            if (match12) {
+              let h = Number(match12[1]);
+              const period = match12[3].toUpperCase();
+              if (period === "AM" && h === 12) h = 0;
+              if (period === "PM" && h !== 12) h += 12;
+              return `${String(h).padStart(2, "0")}:${match12[2]}`;
+            }
+            return selectedConsultation.bookingTime.slice(0, 5);
+          })()
+        : `${hour}:${minute}`
+    );
+    setShowManualComplete(true);
+  }
+
+  async function manuallyCompleteConsultation() {
+    if (!selectedConsultation) return;
+
+    if (!selectedConsultation.paymentRecordId) {
+      alert("This consultation does not have a valid payment record.");
+      return;
+    }
+
+    if (!selectedConsultation.paymentId) {
+      alert("This payment does not have a payment ID and cannot be linked to a consultation.");
+      return;
+    }
+
+    if (!manualDate || !manualTime) {
+      alert("Please select the consultation date and time.");
+      return;
+    }
+
+    const bookingTimestamp = getBookingTimestamp(
+      manualDate,
+      manualTime
+    );
+
+    if (bookingTimestamp === null) {
+      alert("Please enter a valid consultation date and time.");
+      return;
+    }
+
+    setManualSaving(true);
+
+    try {
+      /*
+       * Manual completion is intentionally handled by the server.
+       *
+       * The browser sends the exact payments.id and payment_id.
+       * The server then:
+       * 1. Finds that exact payment.
+       * 2. Gets its customer.
+       * 3. Finds consultation by payment_id ONLY.
+       * 4. Updates or creates the consultation.
+       * 5. Uses the service-role client, so no broad RLS policy is needed.
+       */
+      const response = await fetch(
+        "/api/consultations/manual-complete",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            paymentRecordId:
+              selectedConsultation.paymentRecordId,
+            paymentId:
+              selectedConsultation.paymentId,
+            bookingDate: manualDate,
+            bookingTime: manualTime,
+          }),
+        }
+      );
+
+      const rawResponse = await response.text();
+      let result: any = null;
+
+      try {
+        result = rawResponse ? JSON.parse(rawResponse) : null;
+      } catch {
+        result = null;
+      }
+
+      if (!response.ok) {
+        console.error(
+          "Manual consultation API failed:",
+          {
+            status: response.status,
+            statusText: response.statusText,
+            result,
+            rawResponse,
+          }
+        );
+
+        const serverMessage =
+          result?.error ||
+          result?.details ||
+          rawResponse ||
+          `Server returned HTTP ${response.status}.`;
+
+        alert(
+          `Could not save consultation: ${serverMessage}`
+        );
+        return;
+      }
+
+      if (!result?.ok || !result?.consultation?.id) {
+        console.error(
+          "Manual consultation API returned an unexpected response:",
+          {
+            result,
+            rawResponse,
+          }
+        );
+
+        alert(
+          result?.error ||
+            "The server did not return the saved consultation."
+        );
+        return;
+      }
+
+      const savedConsultation = result.consultation;
+      const savedId = String(savedConsultation.id);
+      const completedAt = String(
+        savedConsultation.completed_at ||
+          new Date().toISOString()
+      );
+
+      /*
+       * Replace the payment-only UI row with the real consultation row.
+       * The database is already updated by the server, so refreshes will
+       * continue to show Completed.
+       */
+      setConsultations((current) =>
+        current.map((consultation) =>
+          consultation.paymentRecordId ===
+            selectedConsultation.paymentRecordId
+            ? {
+                ...consultation,
+                id: savedId,
+                customerId: String(
+                  savedConsultation.customer_id ||
+                    consultation.customerId
+                ),
+                studentName: String(
+                  savedConsultation.student_name ||
+                    consultation.studentName
+                ),
+                email: String(
+                  savedConsultation.email ||
+                    consultation.email
+                ),
+                phone: String(
+                  savedConsultation.phone ||
+                    consultation.phone
+                ),
+                paymentRecordId: String(
+                  savedConsultation.payment_record_id ||
+                    consultation.paymentRecordId
+                ),
+                paymentId: String(
+                  savedConsultation.payment_id ||
+                    consultation.paymentId
+                ),
+                paymentAmount: Number(
+                  savedConsultation.payment_amount ??
+                    consultation.paymentAmount
+                ),
+                paymentStatus:
+                  String(
+                    savedConsultation.payment_status ||
+                      consultation.paymentStatus
+                  ) as Consultation["paymentStatus"],
+                paymentTime: String(
+                  savedConsultation.payment_time ||
+                    consultation.paymentTime
+                ),
+                bookingDate: String(
+                  savedConsultation.booking_date ||
+                    manualDate
+                ),
+                bookingTime: String(
+                  savedConsultation.booking_time ||
+                    manualTime
+                ),
+                status: "Completed",
+                completedAt,
+                meetLink: String(
+                  savedConsultation.meet_link || ""
+                ),
+                recordingLink:
+                  savedConsultation.recording_link
+                    ? String(
+                        savedConsultation.recording_link
+                      )
+                    : null,
+                notes: String(
+                  savedConsultation.notes || ""
+                ),
+                followUpRequired: Boolean(
+                  savedConsultation.follow_up_required
+                ),
+                followUpDate:
+                  savedConsultation.follow_up_date
+                    ? String(
+                        savedConsultation.follow_up_date
+                      )
+                    : null,
+              }
+            : consultation
+        )
+      );
+
+      setSelectedId(savedId);
+      setShowManualComplete(false);
+
+      alert(
+        result.created
+          ? "Consultation created and marked as completed successfully."
+          : "Consultation updated and marked as completed successfully."
+      );
+    } catch (error) {
+      console.error(
+        "Manual consultation request failed:",
+        error
+      );
+
+      alert(
+        `Could not save consultation: ${
+          error instanceof Error
+            ? error.message
+            : "Network error. Please try again."
+        }`
+      );
+    } finally {
+      setManualSaving(false);
+    }
+  }
+
+  async function completeConsultation() {
+    if (!selectedConsultation) return;
     if (selectedConsultation.status === "Completed") return;
 
+    /*
+     * If this payment has no consultation yet, the user must choose
+     * the actual consultation date/time before the server creates it.
+     */
+    const { data: existingByPayment, error } = await supabase
+      .from("consultations")
+      .select("id,status,booking_date,booking_time")
+      .eq("payment_id", selectedConsultation.paymentId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Failed to check consultation:", error);
+      alert(`Could not check consultation: ${error.message}`);
+      return;
+    }
+
+    if (!existingByPayment?.id) {
+      openManualComplete();
+      return;
+    }
+
+    /*
+     * Even when a consultation already exists, use the same server action.
+     * This avoids direct client-side UPDATE calls and keeps all completion
+     * logic in one protected server path.
+     */
     const confirmed = window.confirm(
       `Mark ${selectedConsultation.studentName}'s consultation as completed?`
     );
 
     if (!confirmed) return;
 
-    const completedAt = new Date().toISOString();
+    const existingDate = String(
+      existingByPayment.booking_date ||
+        selectedConsultation.bookingDate ||
+        ""
+    );
 
-    setConsultations((current) => current.map((consultation) => consultation.id === selectedConsultation.id ? { ...consultation, status: "Completed", completedAt } : consultation));
+    const existingTime = String(
+      existingByPayment.booking_time ||
+        selectedConsultation.bookingTime ||
+        ""
+    );
 
-    const { error } = await supabase
-      .from("consultations")
-      .update({ status: "Completed", completed_at: completedAt })
-      .eq("id", selectedConsultation.id);
+    if (!existingDate || !existingTime) {
+      openManualComplete();
+      return;
+    }
 
-    if (error) {
-      console.error("Failed to complete consultation:", error);
-      alert(`Could not update consultation: ${error.message}`);
+    setManualDate(existingDate);
+    setManualTime(
+      (() => {
+        const match12 = existingTime.match(
+          /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i
+        );
+
+        if (match12) {
+          let hour = Number(match12[1]);
+          const period = match12[3].toUpperCase();
+
+          if (period === "AM" && hour === 12) hour = 0;
+          if (period === "PM" && hour !== 12) hour += 12;
+
+          return `${String(hour).padStart(2, "0")}:${match12[2]}`;
+        }
+
+        return existingTime.slice(0, 5);
+      })()
+    );
+
+    /*
+     * Reuse the same server-side completion function. We temporarily set
+     * the manual slot state, then call the exact same protected API path.
+     */
+    setManualSaving(true);
+
+    try {
+      const response = await fetch(
+        "/api/consultations/manual-complete",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            paymentRecordId:
+              selectedConsultation.paymentRecordId,
+            paymentId:
+              selectedConsultation.paymentId,
+            bookingDate: existingDate,
+            bookingTime: existingTime,
+          }),
+        }
+      );
+
+      const rawResponse = await response.text();
+      let result: any = null;
+
+      try {
+        result = rawResponse ? JSON.parse(rawResponse) : null;
+      } catch {
+        result = null;
+      }
+
+      if (!response.ok) {
+        console.error(
+          "Complete consultation API failed:",
+          {
+            status: response.status,
+            statusText: response.statusText,
+            result,
+            rawResponse,
+          }
+        );
+
+        alert(
+          `Could not update consultation: ${
+            result?.error ||
+            result?.details ||
+            rawResponse ||
+            `Server returned HTTP ${response.status}.`
+          }`
+        );
+        return;
+      }
+
+      if (!result?.ok || !result?.consultation?.id) {
+        alert(
+          result?.error ||
+            "The server did not return the completed consultation."
+        );
+        return;
+      }
+
+      const updatedConsultation = result.consultation;
+      const savedId = String(updatedConsultation.id);
+
+      setConsultations((current) =>
+        current.map((consultation) =>
+          consultation.paymentRecordId ===
+            selectedConsultation.paymentRecordId
+            ? {
+                ...consultation,
+                id: savedId,
+                customerId: String(
+                  updatedConsultation.customer_id ||
+                    consultation.customerId
+                ),
+                studentName: String(
+                  updatedConsultation.student_name ||
+                    consultation.studentName
+                ),
+                email: String(
+                  updatedConsultation.email ||
+                    consultation.email
+                ),
+                phone: String(
+                  updatedConsultation.phone ||
+                    consultation.phone
+                ),
+                paymentRecordId: String(
+                  updatedConsultation.payment_record_id ||
+                    consultation.paymentRecordId
+                ),
+                paymentId: String(
+                  updatedConsultation.payment_id ||
+                    consultation.paymentId
+                ),
+                bookingDate: String(
+                  updatedConsultation.booking_date ||
+                    consultation.bookingDate
+                ),
+                bookingTime: String(
+                  updatedConsultation.booking_time ||
+                    consultation.bookingTime
+                ),
+                status: "Completed",
+                completedAt: String(
+                  updatedConsultation.completed_at ||
+                    new Date().toISOString()
+                ),
+                recordingLink:
+                  updatedConsultation.recording_link
+                    ? String(
+                        updatedConsultation.recording_link
+                      )
+                    : consultation.recordingLink,
+                meetLink: String(
+                  updatedConsultation.meet_link ||
+                    consultation.meetLink
+                ),
+              }
+            : consultation
+        )
+      );
+
+      setSelectedId(savedId);
+    } catch (error) {
+      console.error(
+        "Complete consultation request failed:",
+        error
+      );
+
+      alert(
+        `Could not update consultation: ${
+          error instanceof Error
+            ? error.message
+            : "Network error. Please try again."
+        }`
+      );
+    } finally {
+      setManualSaving(false);
     }
   }
 
@@ -1936,6 +2443,31 @@ export default function ConsultationsPage() {
           padding: 15px 17px;
         }
 
+        .manual-slot-button {
+          width: 100%;
+          height: 38px;
+          margin-bottom: 8px;
+          border: 1px solid rgba(255, 255, 255, .10);
+          border-radius: 8px;
+          background: #111317;
+          color: #dfe3e8;
+          font-size: 11px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: .15s ease;
+        }
+
+        .manual-slot-button:hover:not(:disabled) {
+          border-color: rgba(255, 23, 68, .38);
+          background: rgba(255, 23, 68, .07);
+          color: #ffffff;
+        }
+
+        .manual-slot-button:disabled {
+          opacity: .5;
+          cursor: not-allowed;
+        }
+
         .complete-button {
           width: 100%;
           height: 40px;
@@ -2438,6 +2970,165 @@ export default function ConsultationsPage() {
             font-size: 26px;
           }
         }
+
+
+        .manual-modal-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 9999;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+          background: rgba(0, 0, 0, .78);
+          backdrop-filter: blur(7px);
+        }
+
+        .manual-modal {
+          width: min(460px, 100%);
+          background: #0c0d10;
+          border: 1px solid rgba(255, 23, 68, .28);
+          border-radius: 14px;
+          box-shadow: 0 25px 90px rgba(0, 0, 0, .65);
+          overflow: hidden;
+        }
+
+        .manual-modal-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 15px;
+          padding: 18px;
+          border-bottom: 1px solid rgba(255, 255, 255, .07);
+          background: linear-gradient(135deg, rgba(255, 23, 68, .10), transparent 65%);
+        }
+
+        .manual-modal-title {
+          margin: 0;
+          color: #fff;
+          font-size: 15px;
+          font-weight: 700;
+        }
+
+        .manual-modal-subtitle {
+          margin: 5px 0 0;
+          color: #737c87;
+          font-size: 10px;
+          line-height: 1.5;
+        }
+
+        .manual-modal-close {
+          width: 30px;
+          height: 30px;
+          border: 1px solid rgba(255,255,255,.08);
+          border-radius: 8px;
+          background: #111317;
+          color: #8b939d;
+          cursor: pointer;
+          font-size: 17px;
+        }
+
+        .manual-modal-body {
+          padding: 18px;
+        }
+
+        .manual-modal-person {
+          margin-bottom: 15px;
+          padding: 11px 12px;
+          border: 1px solid rgba(255,255,255,.07);
+          border-radius: 9px;
+          background: #111317;
+        }
+
+        .manual-modal-person-name {
+          color: #fff;
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .manual-modal-person-payment {
+          margin-top: 4px;
+          color: #737c87;
+          font-size: 9px;
+          word-break: break-all;
+        }
+
+        .manual-field-label {
+          display: block;
+          margin-bottom: 6px;
+          color: #8a929d;
+          font-size: 10px;
+          font-weight: 650;
+        }
+
+        .manual-field-row {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
+
+        .manual-input {
+          width: 100%;
+          height: 40px;
+          padding: 0 11px;
+          border: 1px solid rgba(255,255,255,.09);
+          border-radius: 8px;
+          outline: none;
+          background: #111317;
+          color: #f1f3f6;
+          font-size: 12px;
+        }
+
+        .manual-input:focus {
+          border-color: rgba(255, 23, 68, .55);
+          box-shadow: 0 0 0 3px rgba(255, 23, 68, .08);
+        }
+
+        .manual-modal-note {
+          margin-top: 12px;
+          padding: 10px 11px;
+          border-radius: 8px;
+          background: rgba(52, 211, 153, .06);
+          border: 1px solid rgba(52, 211, 153, .12);
+          color: #8fe8c3;
+          font-size: 9px;
+          line-height: 1.5;
+        }
+
+        .manual-modal-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+          margin-top: 18px;
+        }
+
+        .manual-cancel-button,
+        .manual-save-button {
+          height: 38px;
+          padding: 0 13px;
+          border-radius: 8px;
+          font-size: 11px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .manual-cancel-button {
+          border: 1px solid rgba(255,255,255,.09);
+          background: #111317;
+          color: #aeb5be;
+        }
+
+        .manual-save-button {
+          border: 1px solid rgba(255,23,68,.35);
+          background: #ff1744;
+          color: #fff;
+        }
+
+        .manual-save-button:disabled,
+        .manual-cancel-button:disabled {
+          opacity: .5;
+          cursor: not-allowed;
+        }
       `}</style>
 
       <div className="container">
@@ -2918,11 +3609,9 @@ export default function ConsultationsPage() {
                       <tbody>
 
                         {paginatedConsultations.map(
-                          (consultation) => (
+                          (consultation, rowIndex) => (
                             <tr
-                              key={
-                                consultation.id
-                              }
+                              key={`${consultation.id}-${(safePage - 1) * perPage + rowIndex}`}
                               className={
                                 selectedId ===
                                 consultation.id
@@ -3662,6 +4351,14 @@ export default function ConsultationsPage() {
               <div className="actions">
 
                 <button
+                  className="manual-slot-button"
+                  onClick={openManualComplete}
+                  disabled={manualSaving}
+                >
+                  + Add Manual Slot
+                </button>
+
+                <button
                   className="complete-button"
                   disabled={
                     selectedConsultation.status ===
@@ -3712,6 +4409,105 @@ export default function ConsultationsPage() {
           )}
 
         </div>
+
+        {showManualComplete && selectedConsultation && (
+          <div
+            className="manual-modal-backdrop"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget && !manualSaving) {
+                setShowManualComplete(false);
+              }
+            }}
+          >
+            <div className="manual-modal" role="dialog" aria-modal="true" aria-labelledby="manual-consultation-title">
+              <div className="manual-modal-header">
+                <div>
+                  <h2 id="manual-consultation-title" className="manual-modal-title">
+                    Add Manual Consultation Slot
+                  </h2>
+                  <p className="manual-modal-subtitle">
+                    This payment does not have a consultation booking yet. Add the actual slot and mark this consultation completed.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  className="manual-modal-close"
+                  disabled={manualSaving}
+                  onClick={() => setShowManualComplete(false)}
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="manual-modal-body">
+                <div className="manual-modal-person">
+                  <div className="manual-modal-person-name">
+                    {selectedConsultation.studentName}
+                  </div>
+                  <div className="manual-modal-person-payment">
+                    Payment: {selectedConsultation.paymentId || "—"}
+                  </div>
+                </div>
+
+                <div className="manual-field-row">
+                  <div>
+                    <label className="manual-field-label" htmlFor="manual-consultation-date">
+                      Consultation Date
+                    </label>
+                    <input
+                      id="manual-consultation-date"
+                      className="manual-input"
+                      type="date"
+                      value={manualDate}
+                      onChange={(event) => setManualDate(event.target.value)}
+                      disabled={manualSaving}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="manual-field-label" htmlFor="manual-consultation-time">
+                      Consultation Time
+                    </label>
+                    <input
+                      id="manual-consultation-time"
+                      className="manual-input"
+                      type="time"
+                      value={manualTime}
+                      onChange={(event) => setManualTime(event.target.value)}
+                      disabled={manualSaving}
+                    />
+                  </div>
+                </div>
+
+                <div className="manual-modal-note">
+                  ✓ This will create/update the consultation as <strong>Completed</strong>. A recording is not required for manually completed consultations.
+                </div>
+
+                <div className="manual-modal-actions">
+                  <button
+                    type="button"
+                    className="manual-cancel-button"
+                    disabled={manualSaving}
+                    onClick={() => setShowManualComplete(false)}
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="button"
+                    className="manual-save-button"
+                    disabled={manualSaving}
+                    onClick={manuallyCompleteConsultation}
+                  >
+                    {manualSaving ? "Saving..." : "Save & Mark Completed"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
