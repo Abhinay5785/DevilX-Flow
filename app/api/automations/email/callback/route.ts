@@ -13,27 +13,39 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
+
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
     const errorParam = url.searchParams.get("error");
 
+    // Google returned an OAuth error
     if (errorParam) {
       return NextResponse.redirect(
         new URL(
-          `/dashboard/automations/email?gmail_error=${encodeURIComponent(errorParam)}`,
+          `/dashboard/automations/email?gmail_error=${encodeURIComponent(
+            errorParam,
+          )}`,
           url.origin,
         ),
       );
     }
 
+    // Validate OAuth response
     if (!code || !state) {
       return NextResponse.json(
-        { error: "Missing OAuth code or state." },
+        {
+          error: "Missing OAuth code or state.",
+        },
         { status: 400 },
       );
     }
 
+    // ---------------------------------------------------------
+    // Validate OAuth state cookie
+    // ---------------------------------------------------------
+
     const cookieHeader = request.headers.get("cookie") || "";
+
     const storedState = cookieHeader
       .split(";")
       .map((cookie) => cookie.trim())
@@ -44,21 +56,51 @@ export async function GET(request: Request) {
 
     if (!storedState || storedState !== state) {
       return NextResponse.json(
-        { error: "Invalid OAuth state." },
+        {
+          error: "Invalid OAuth state.",
+        },
         { status: 400 },
       );
     }
+
+    // ---------------------------------------------------------
+    // Google OAuth environment variables
+    // ---------------------------------------------------------
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
     const redirectUri = process.env.GOOGLE_REDIRECT_URI;
 
-    if (!clientId || !clientSecret || !redirectUri) {
+    if (!clientId) {
       return NextResponse.json(
-        { error: "Google OAuth environment variables are missing." },
+        {
+          error: "GOOGLE_CLIENT_ID is missing.",
+        },
         { status: 500 },
       );
     }
+
+    if (!clientSecret) {
+      return NextResponse.json(
+        {
+          error: "GOOGLE_CLIENT_SECRET is missing.",
+        },
+        { status: 500 },
+      );
+    }
+
+    if (!redirectUri) {
+      return NextResponse.json(
+        {
+          error: "GOOGLE_REDIRECT_URI is missing.",
+        },
+        { status: 500 },
+      );
+    }
+
+    // ---------------------------------------------------------
+    // Exchange Google authorization code for tokens
+    // ---------------------------------------------------------
 
     const tokenResponse = await fetch(
       "https://oauth2.googleapis.com/token",
@@ -86,24 +128,30 @@ export async function GET(request: Request) {
       return NextResponse.json(
         {
           error:
-            tokenData.error_description ||
-            tokenData.error ||
+            tokenData?.error_description ||
+            tokenData?.error ||
             "Google token exchange failed.",
         },
         { status: 400 },
       );
     }
 
-    const accessToken = tokenData.access_token;
-    const refreshToken = tokenData.refresh_token;
-    const expiresIn = Number(tokenData.expires_in || 3600);
+    const accessToken = tokenData?.access_token;
+    const refreshToken = tokenData?.refresh_token;
+    const expiresIn = Number(tokenData?.expires_in || 3600);
 
     if (!accessToken) {
       return NextResponse.json(
-        { error: "Google did not return an access token." },
+        {
+          error: "Google did not return an access token.",
+        },
         { status: 400 },
       );
     }
+
+    // ---------------------------------------------------------
+    // Get Google account information
+    // ---------------------------------------------------------
 
     const userInfoResponse = await fetch(
       "https://openidconnect.googleapis.com/v1/userinfo",
@@ -117,8 +165,11 @@ export async function GET(request: Request) {
 
     const userInfo = await userInfoResponse.json();
 
-    if (!userInfoResponse.ok || !userInfo.email) {
-      console.error("Google userinfo request failed:", userInfo);
+    if (!userInfoResponse.ok || !userInfo?.email) {
+      console.error(
+        "Google userinfo request failed:",
+        userInfo,
+      );
 
       return NextResponse.json(
         {
@@ -130,27 +181,55 @@ export async function GET(request: Request) {
       );
     }
 
-    const googleEmail = String(userInfo.email).trim().toLowerCase();
+    const googleEmail = String(userInfo.email)
+      .trim()
+      .toLowerCase();
+
+    // ---------------------------------------------------------
+    // IMPORTANT:
+    // Use the Supabase SERVICE ROLE client.
+    //
+    // DevilX Flow does not have a Supabase Auth admin session,
+    // so the normal browser/server client can be blocked by RLS.
+    // ---------------------------------------------------------
+
     const supabase = createClient();
 
-    const { data: existingConnection, error: existingError } =
-      await supabase
-        .from("gmail_connections")
-        .select("id, refresh_token")
-        .eq("google_email", googleEmail)
-        .maybeSingle();
+    // ---------------------------------------------------------
+    // Check whether this Gmail account already exists
+    // ---------------------------------------------------------
+
+    const {
+      data: existingConnection,
+      error: existingError,
+    } = await supabase
+      .from("gmail_connections")
+      .select("id, refresh_token")
+      .eq("google_email", googleEmail)
+      .maybeSingle();
 
     if (existingError) {
-      console.error("Failed to read existing Gmail connection:", existingError);
+      console.error(
+        "Failed to read existing Gmail connection:",
+        existingError,
+      );
 
       return NextResponse.json(
-        { error: existingError.message },
+        {
+          error: existingError.message,
+        },
         { status: 500 },
       );
     }
 
+    // Google may not return refresh_token when the user has
+    // already authorized the application.
+    //
+    // Therefore, preserve the existing refresh token.
     const finalRefreshToken =
-      refreshToken || existingConnection?.refresh_token || null;
+      refreshToken ||
+      existingConnection?.refresh_token ||
+      null;
 
     if (!finalRefreshToken) {
       return NextResponse.json(
@@ -162,9 +241,17 @@ export async function GET(request: Request) {
       );
     }
 
+    // ---------------------------------------------------------
+    // Calculate token expiry
+    // ---------------------------------------------------------
+
     const tokenExpiresAt = new Date(
       Date.now() + expiresIn * 1000,
     ).toISOString();
+
+    // ---------------------------------------------------------
+    // Save Gmail connection
+    // ---------------------------------------------------------
 
     const { error: upsertError } = await supabase
       .from("gmail_connections")
@@ -177,11 +264,16 @@ export async function GET(request: Request) {
           scopes: GMAIL_SCOPES,
           active: true,
         },
-        { onConflict: "google_email" },
+        {
+          onConflict: "google_email",
+        },
       );
 
     if (upsertError) {
-      console.error("Failed to save Gmail connection:", upsertError);
+      console.error(
+        "Failed to save Gmail connection:",
+        upsertError,
+      );
 
       return NextResponse.json(
         {
@@ -192,6 +284,10 @@ export async function GET(request: Request) {
         { status: 500 },
       );
     }
+
+    // ---------------------------------------------------------
+    // Clear OAuth state cookie
+    // ---------------------------------------------------------
 
     const response = NextResponse.redirect(
       new URL(
