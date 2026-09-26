@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const GMAIL_SCOPES = [
+  "openid",
+  "email",
   "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/userinfo.email",
 ];
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
@@ -172,13 +176,13 @@ export async function GET(request: Request) {
       );
     }
 
-    const googleEmail = userInfo.email;
+    const googleEmail = String(userInfo.email).trim().toLowerCase();
 
     // ------------------------------------------------------------
     // Supabase
     // ------------------------------------------------------------
 
-    const supabase = await createClient();
+    const supabase = createAdminClient();
 
     // ------------------------------------------------------------
     // Preserve an existing refresh token if Google doesn't

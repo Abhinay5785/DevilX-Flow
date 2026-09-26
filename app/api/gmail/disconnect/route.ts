@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST() {
   try {
-    const supabase = await createClient();
+    const supabase = createAdminClient();
 
     const { data: connections, error: findError } = await supabase
       .from("gmail_connections")
