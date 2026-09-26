@@ -354,7 +354,7 @@ export async function POST(request: NextRequest) {
    * SUPABASE
    * ========================================================= */
 
-  const supabase = createClient();
+  const supabase = await createClient();
 
   /* =========================================================
    * IDEMPOTENCY

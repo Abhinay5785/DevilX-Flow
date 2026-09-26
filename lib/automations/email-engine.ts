@@ -218,7 +218,7 @@ function addMinutes(date: Date, minutes: number) {
 export async function queueEmailAutomationsForPayment(
   paymentId: string,
 ) {
-  const supabase = createClient();
+  const supabase = await createClient();
 
   // Global Email Automation switch.
   // When disabled, no new email automation jobs are created.

@@ -50,7 +50,7 @@ function getRetryDelayMinutes(attempts: number) {
 }
 
 async function incrementSentCount(
-  supabase: ReturnType<typeof createClient>,
+  supabase: Awaited<ReturnType<typeof createClient>>,
   automationId: string,
 ) {
   const { data: automation, error: readError } =
@@ -91,7 +91,7 @@ async function incrementSentCount(
 }
 
 async function markJobFailed(
-  supabase: ReturnType<typeof createClient>,
+  supabase: Awaited<ReturnType<typeof createClient>>,
   job: EmailJob,
   errorMessage: string,
 ): Promise<ProcessResult> {
@@ -208,7 +208,7 @@ async function markJobFailed(
  * the same email simultaneously.
  */
 export async function processEmailJob(
-  supabase: ReturnType<typeof createClient>,
+  supabase: Awaited<ReturnType<typeof createClient>>,
   job: EmailJob,
 ): Promise<ProcessResult> {
   const attempts =
@@ -404,7 +404,7 @@ export async function processEmailJobById(
   jobId: string,
 ) {
   const supabase =
-    createClient();
+    await createClient();
 
   const {
     data: job,
@@ -452,7 +452,7 @@ export async function processEmailJobById(
  */
 export async function processPendingEmailJobs() {
   const supabase =
-    createClient();
+    await createClient();
 
   /*
    * Global email automation switch.
