@@ -12,14 +12,6 @@ export function createAdminClient() {
     throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured.");
   }
 
-  // TEMPORARY DIAGNOSTIC
-  console.log("SUPABASE ADMIN CLIENT:", {
-    hasUrl: Boolean(supabaseUrl),
-    hasServiceRoleKey: Boolean(serviceRoleKey),
-    serviceRoleKeyLength: serviceRoleKey.length,
-    serviceRoleKeyPrefix: serviceRoleKey.substring(0, 10),
-  });
-
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       persistSession: false,

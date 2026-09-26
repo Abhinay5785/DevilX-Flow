@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 import { queueEmailAutomationsForPayment } from "@/lib/automations/email-engine";
 
@@ -354,7 +354,7 @@ export async function POST(request: NextRequest) {
    * SUPABASE
    * ========================================================= */
 
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   /* =========================================================
    * IDEMPOTENCY

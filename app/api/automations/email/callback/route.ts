@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createAdminClient as createClient } from "@/lib/supabase/admin";
+
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const GMAIL_SCOPES = [
   "openid",
@@ -18,7 +19,10 @@ export async function GET(request: Request) {
     const state = url.searchParams.get("state");
     const errorParam = url.searchParams.get("error");
 
+    // ---------------------------------------------------------
     // Google returned an OAuth error
+    // ---------------------------------------------------------
+
     if (errorParam) {
       return NextResponse.redirect(
         new URL(
@@ -30,7 +34,10 @@ export async function GET(request: Request) {
       );
     }
 
+    // ---------------------------------------------------------
     // Validate OAuth response
+    // ---------------------------------------------------------
+
     if (!code || !state) {
       return NextResponse.json(
         {
@@ -187,13 +194,16 @@ export async function GET(request: Request) {
 
     // ---------------------------------------------------------
     // IMPORTANT:
-    // Use the Supabase SERVICE ROLE client.
+    // DevilX Flow does not have a Supabase Auth login.
     //
-    // DevilX Flow does not have a Supabase Auth admin session,
-    // so the normal browser/server client can be blocked by RLS.
+    // Therefore use the SERVICE ROLE client for backend
+    // automation/OAuth database operations.
+    //
+    // This bypasses RLS safely because this code runs only
+    // on the server.
     // ---------------------------------------------------------
 
-    const supabase = createClient();
+    const supabase = createAdminClient();
 
     // ---------------------------------------------------------
     // Check whether this Gmail account already exists
@@ -222,10 +232,13 @@ export async function GET(request: Request) {
       );
     }
 
-    // Google may not return refresh_token when the user has
+    // ---------------------------------------------------------
+    // Google may not return a refresh token when the user has
     // already authorized the application.
     //
-    // Therefore, preserve the existing refresh token.
+    // Preserve the existing refresh token in that situation.
+    // ---------------------------------------------------------
+
     const finalRefreshToken =
       refreshToken ||
       existingConnection?.refresh_token ||
