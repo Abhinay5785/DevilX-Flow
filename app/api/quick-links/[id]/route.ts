@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
 
 import {
   normalizeLinkInput,
@@ -13,21 +12,58 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
+function getAdminSupabase() {
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  const serviceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl) {
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_URL is not configured."
+    );
+  }
+
+  if (!serviceRoleKey) {
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY is not configured."
+    );
+  }
+
+  return createClient(
+    supabaseUrl,
+    serviceRoleKey,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    }
+  );
+}
+
 export async function PATCH(
   request: NextRequest,
-  context: RouteContext,
+  context: RouteContext
 ) {
   try {
-    const { id } = await context.params;
+    const { id } =
+      await context.params;
 
     if (!id) {
       return NextResponse.json(
-        { error: "Link id is required." },
-        { status: 400 },
+        {
+          error: "Link id is required.",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
-    const body = await request.json();
+    const body =
+      await request.json();
 
     const updates: {
       title?: string;
@@ -39,18 +75,27 @@ export async function PATCH(
       body.title !== undefined ||
       body.url !== undefined
     ) {
-      const { title, url } = normalizeLinkInput({
-        title: body.title,
-        url: body.url,
-      });
+      const { title, url } =
+        normalizeLinkInput({
+          title: body.title,
+          url: body.url,
+        });
 
       const validationError =
-        validateLinkInput(title, url);
+        validateLinkInput(
+          title,
+          url
+        );
 
       if (validationError) {
         return NextResponse.json(
-          { error: validationError },
-          { status: 400 },
+          {
+            error:
+              validationError,
+          },
+          {
+            status: 400,
+          }
         );
       }
 
@@ -58,39 +103,70 @@ export async function PATCH(
       updates.url = url;
     }
 
-    if (typeof body.is_pinned === "boolean") {
-      updates.is_pinned = body.is_pinned;
+    if (
+      typeof body.is_pinned ===
+      "boolean"
+    ) {
+      updates.is_pinned =
+        body.is_pinned;
     }
 
-    if (Object.keys(updates).length === 0) {
+    if (
+      Object.keys(updates)
+        .length === 0
+    ) {
       return NextResponse.json(
-        { error: "No valid fields to update." },
-        { status: 400 },
+        {
+          error:
+            "No valid fields to update.",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
-    const supabase = await createClient();
+    const supabase =
+      getAdminSupabase();
 
-    const { data, error } = await supabase
+    const {
+      data,
+      error,
+    } = await supabase
       .from("quick_links")
       .update(updates)
       .eq("id", id)
       .select(
-        "id,title,url,is_pinned,created_at,updated_at",
+        "id,title,url,is_pinned,created_at,updated_at"
       )
       .single();
 
     if (error) {
+      console.error(
+        "Quick Links PATCH failed:",
+        error
+      );
+
       return NextResponse.json(
-        { error: error.message },
-        { status: 500 },
+        {
+          error:
+            error.message,
+        },
+        {
+          status: 500,
+        }
       );
     }
 
     if (!data) {
       return NextResponse.json(
-        { error: "Link not found." },
-        { status: 404 },
+        {
+          error:
+            "Link not found.",
+        },
+        {
+          status: 404,
+        }
       );
     }
 
@@ -98,6 +174,11 @@ export async function PATCH(
       link: data,
     });
   } catch (error) {
+    console.error(
+      "Quick Links PATCH server error:",
+      error
+    );
+
     return NextResponse.json(
       {
         error:
@@ -105,36 +186,56 @@ export async function PATCH(
             ? error.message
             : "Failed to update quick link.",
       },
-      { status: 500 },
+      {
+        status: 500,
+      }
     );
   }
 }
 
 export async function DELETE(
   _request: NextRequest,
-  context: RouteContext,
+  context: RouteContext
 ) {
   try {
-    const { id } = await context.params;
+    const { id } =
+      await context.params;
 
     if (!id) {
       return NextResponse.json(
-        { error: "Link id is required." },
-        { status: 400 },
+        {
+          error:
+            "Link id is required.",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
-    const supabase = await createClient();
+    const supabase =
+      getAdminSupabase();
 
-    const { error } = await supabase
-      .from("quick_links")
-      .delete()
-      .eq("id", id);
+    const { error } =
+      await supabase
+        .from("quick_links")
+        .delete()
+        .eq("id", id);
 
     if (error) {
+      console.error(
+        "Quick Links DELETE failed:",
+        error
+      );
+
       return NextResponse.json(
-        { error: error.message },
-        { status: 500 },
+        {
+          error:
+            error.message,
+        },
+        {
+          status: 500,
+        }
       );
     }
 
@@ -142,6 +243,11 @@ export async function DELETE(
       ok: true,
     });
   } catch (error) {
+    console.error(
+      "Quick Links DELETE server error:",
+      error
+    );
+
     return NextResponse.json(
       {
         error:
@@ -149,7 +255,9 @@ export async function DELETE(
             ? error.message
             : "Failed to delete quick link.",
       },
-      { status: 500 },
+      {
+        status: 500,
+      }
     );
   }
 }

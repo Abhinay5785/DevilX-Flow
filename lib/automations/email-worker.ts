@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient as createClient } from "@/lib/supabase/admin";
 import { sendGmailEmail } from "@/lib/google/gmail";
 
 const BATCH_SIZE = 10;

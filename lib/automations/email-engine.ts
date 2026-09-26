@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient as createClient } from "@/lib/supabase/admin";
 import { processEmailJobById } from "@/lib/automations/email-worker";
 
 type PaymentData = {

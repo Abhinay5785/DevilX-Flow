@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  BarChart3,
   CalendarDays,
   Check,
   CircleDollarSign,
@@ -12,7 +11,6 @@ import {
   ExternalLink,
   LayoutDashboard,
   Link2,
-  MessageCircle,
   Pencil,
   Pin,
   Plus,
@@ -284,7 +282,7 @@ export default function QuickLinksPage() {
               <SidebarItem icon={<CalendarDays size={17} />} label="Consultations" href="/dashboard/consultations" />
               <SidebarItem icon={<CreditCard size={17} />} label="Courses" href="/dashboard/courses" />
               <SidebarItem icon={<CircleDollarSign size={17} />} label="Revenue" href="/dashboard/revenue" />
-              <SidebarItem icon={<MessageCircle size={17} />} label="WhatsApp" href="/dashboard/whatsapp" />
+              <SidebarItem icon={<Zap size={17} />} label="Automations" href="/dashboard/automations" />
               <SidebarItem icon={<Link2 size={17} />} label="Quick Links" href="/dashboard/quick-links" active />
             </nav>
 
@@ -529,14 +527,13 @@ export default function QuickLinksPage() {
         </main>
 
         <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.08] bg-[#050505]/95 px-1.5 pb-[env(safe-area-inset-bottom)] pt-1.5 backdrop-blur-xl lg:hidden">
-          <div className="mx-auto grid max-w-[760px] grid-cols-7">
-            <MobileNavItem icon={<LayoutDashboard size={17} />} label="Home" href="/dashboard" />
-            <MobileNavItem icon={<Users size={17} />} label="Customers" href="/dashboard/customers" />
-            <MobileNavItem icon={<CalendarDays size={17} />} label="Consultations" href="/dashboard/consultations" />
-            <MobileNavItem icon={<CreditCard size={17} />} label="Courses" href="/dashboard/courses" />
-            <MobileNavItem icon={<CircleDollarSign size={17} />} label="Revenue" href="/dashboard/revenue" />
-            <MobileNavItem icon={<MessageCircle size={17} />} label="WhatsApp" href="/dashboard/whatsapp" />
-            <MobileNavItem icon={<BarChart3 size={17} />} label="Analytics" href="/dashboard/analytics" />
+          <div className="mx-auto grid max-w-[760px] grid-cols-6 gap-0.5 sm:gap-1">
+            <MobileNavItem icon={<LayoutDashboard size={18} />} label="Home" href="/dashboard" />
+            <MobileNavItem icon={<Users size={18} />} label="Customers" href="/dashboard/customers" />
+            <MobileNavItem icon={<CalendarDays size={18} />} label="Consultations" href="/dashboard/consultations" />
+            <MobileNavItem icon={<CreditCard size={18} />} label="Courses" href="/dashboard/courses" />
+            <MobileNavItem icon={<CircleDollarSign size={18} />} label="Revenue" href="/dashboard/revenue" />
+            <MobileNavItem icon={<Zap size={18} />} label="Automations" href="/dashboard/automations" />
           </div>
         </nav>
       </div>
