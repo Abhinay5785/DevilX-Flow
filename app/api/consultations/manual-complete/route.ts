@@ -63,12 +63,15 @@ export async function POST(request: NextRequest) {
 
   const payload = body as Record<string, unknown>;
 
-  const requiredFields = [
-    "paymentRecordId",
-    "paymentId",
-    "bookingDate",
-    "bookingTime",
-  ];
+  const actionType =
+    typeof payload.actionType === "string"
+      ? payload.actionType.trim().toLowerCase()
+      : "save";
+
+  const requiredFields =
+    actionType === "cancel"
+      ? ["paymentRecordId", "paymentId", "consultationId", "cancellationNote"]
+      : ["paymentRecordId", "paymentId", "bookingDate", "bookingTime"];
 
   for (const field of requiredFields) {
     if (typeof payload[field] !== "string" || !payload[field].trim()) {
@@ -91,10 +94,26 @@ export async function POST(request: NextRequest) {
         "x-consultation-sync-secret": secret,
       },
       body: JSON.stringify({
+        actionType,
+        consultationId:
+          typeof payload.consultationId === "string"
+            ? payload.consultationId.trim()
+            : "",
         paymentRecordId: String(payload.paymentRecordId).trim(),
         paymentId: String(payload.paymentId).trim(),
-        bookingDate: String(payload.bookingDate).trim(),
-        bookingTime: String(payload.bookingTime).trim(),
+        bookingDate:
+          typeof payload.bookingDate === "string"
+            ? payload.bookingDate.trim()
+            : "",
+        bookingTime:
+          typeof payload.bookingTime === "string"
+            ? payload.bookingTime.trim()
+            : "",
+        markCompleted: payload.markCompleted !== false,
+        cancellationNote:
+          typeof payload.cancellationNote === "string"
+            ? payload.cancellationNote.trim()
+            : "",
       }),
       cache: "no-store",
     });

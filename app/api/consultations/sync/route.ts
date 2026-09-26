@@ -1236,6 +1236,10 @@ export async function POST(
       body.paymentId
     );
 
+    const actionType = clean(body.actionType).toLowerCase() || "save";
+    const cancellationNote = clean(body.cancellationNote);
+    const requestedConsultationId = clean(body.consultationId);
+
     const bookingDate = parseDate(
       body.bookingDate
     );
@@ -1243,6 +1247,12 @@ export async function POST(
     const bookingTime = parseTime(
       body.bookingTime
     );
+
+    // Backward compatible default: existing callers that do not send
+    // markCompleted continue to create/update the consultation as Completed.
+    // The manual slot UI sends false when the user only wants to book/save
+    // the slot and complete it later.
+    const markCompleted = body.markCompleted !== false;
 
     if (!paymentRecordId) {
       return NextResponse.json(
@@ -1256,7 +1266,7 @@ export async function POST(
       );
     }
 
-    if (!bookingDate || !bookingTime) {
+    if (actionType !== "cancel" && (!bookingDate || !bookingTime)) {
       return NextResponse.json(
         {
           error:
@@ -1266,6 +1276,30 @@ export async function POST(
           status: 400,
         }
       );
+    }
+
+    if (actionType === "cancel") {
+      if (!requestedConsultationId) {
+        return NextResponse.json(
+          {
+            error: "consultationId is required to cancel a consultation.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      if (!cancellationNote) {
+        return NextResponse.json(
+          {
+            error: "A cancellation note/reason is required.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
     }
 
     /*
@@ -1476,8 +1510,124 @@ export async function POST(
       );
     }
 
+    if (actionType === "cancel") {
+      if (!existingConsultation?.id) {
+        return NextResponse.json(
+          {
+            error: "No consultation slot exists for this payment, so there is nothing to cancel.",
+          },
+          {
+            status: 404,
+          }
+        );
+      }
+
+      if (String(existingConsultation.id) !== requestedConsultationId) {
+        return NextResponse.json(
+          {
+            error: "The selected consultation does not match the selected payment.",
+          },
+          {
+            status: 409,
+          }
+        );
+      }
+
+      const existingStatus = clean(existingConsultation.status);
+
+      if (existingStatus === "Completed") {
+        return NextResponse.json(
+          {
+            error: "A completed consultation cannot be cancelled.",
+          },
+          {
+            status: 409,
+          }
+        );
+      }
+
+      if (existingStatus === "Cancelled") {
+        return NextResponse.json(
+          {
+            error: "This consultation is already cancelled.",
+          },
+          {
+            status: 409,
+          }
+        );
+      }
+
+      const completedAt = new Date().toISOString();
+      const previousNotes = clean(existingConsultation.notes);
+      const cancellationEntry = `Cancellation note: ${cancellationNote}`;
+      const combinedNotes = previousNotes
+        ? `${previousNotes}\n\n${cancellationEntry}`
+        : cancellationEntry;
+
+      const {
+        data: cancelled,
+        error: cancellationError,
+      } = await supabase
+        .from("consultations")
+        .update({
+          status: "Cancelled",
+          completed_at: null,
+          notes: combinedNotes,
+          updated_at: completedAt,
+        })
+        .eq("id", existingConsultation.id)
+        .eq("payment_id", actualPaymentId)
+        .select("*")
+        .single();
+
+      if (cancellationError) {
+        console.error(
+          "Consultation cancellation update failed:",
+          cancellationError
+        );
+
+        return NextResponse.json(
+          {
+            error: cancellationError.message,
+            details: cancellationError.details ?? null,
+            hint: cancellationError.hint ?? null,
+          },
+          {
+            status: 500,
+          }
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        created: false,
+        updated: true,
+        cancelled: true,
+        paymentRecordId: payment.id,
+        paymentId: actualPaymentId,
+        customerId: customer.id,
+        consultation: cancelled,
+      });
+    }
+
     const completedAt =
       new Date().toISOString();
+
+    const existingStatus = clean(
+      existingConsultation?.status
+    );
+
+    const desiredStatus = markCompleted
+      ? "Completed"
+      : isProtectedStatus(existingStatus)
+        ? existingStatus
+        : "Scheduled";
+
+    const desiredCompletedAt = markCompleted
+      ? completedAt
+      : existingStatus === "Completed"
+        ? existingConsultation?.completed_at ?? null
+        : null;
 
     if (existingConsultation?.id) {
       /*
@@ -1517,8 +1667,8 @@ export async function POST(
             null,
           booking_date: bookingDate,
           booking_time: bookingTime,
-          status: "Completed",
-          completed_at: completedAt,
+          status: desiredStatus,
+          completed_at: desiredCompletedAt,
           updated_at: completedAt,
         })
         .eq("id", existingConsultation.id)
@@ -1606,8 +1756,8 @@ export async function POST(
         booking_time: bookingTime,
         meet_link: null,
         recording_link: null,
-        status: "Completed",
-        completed_at: completedAt,
+        status: desiredStatus,
+        completed_at: desiredCompletedAt,
         notes: "",
         follow_up_required: false,
         follow_up_date: null,

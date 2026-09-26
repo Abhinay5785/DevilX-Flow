@@ -261,6 +261,8 @@ export default function ConsultationsPage() {
   const [manualDate, setManualDate] = useState("");
   const [manualTime, setManualTime] = useState("");
   const [manualSaving, setManualSaving] = useState(false);
+  const [showCancelConsultation, setShowCancelConsultation] = useState(false);
+  const [cancellationNote, setCancellationNote] = useState("");
 
   const [browserNotificationsEnabled, setBrowserNotificationsEnabled] =
     useState(false);
@@ -938,7 +940,7 @@ export default function ConsultationsPage() {
     setShowManualComplete(true);
   }
 
-  async function manuallyCompleteConsultation() {
+  async function saveManualConsultation(markCompleted: boolean) {
     if (!selectedConsultation) return;
 
     if (!selectedConsultation.paymentRecordId) {
@@ -994,6 +996,7 @@ export default function ConsultationsPage() {
               selectedConsultation.paymentId,
             bookingDate: manualDate,
             bookingTime: manualTime,
+            markCompleted,
           }),
         }
       );
@@ -1048,10 +1051,16 @@ export default function ConsultationsPage() {
 
       const savedConsultation = result.consultation;
       const savedId = String(savedConsultation.id);
-      const completedAt = String(
-        savedConsultation.completed_at ||
-          new Date().toISOString()
-      );
+      const savedStatus = String(
+        savedConsultation.status ||
+          (markCompleted ? "Completed" : "Scheduled")
+      ) as ConsultationStatus;
+      const completedAt = markCompleted
+        ? String(
+            savedConsultation.completed_at ||
+              new Date().toISOString()
+          )
+        : null;
 
       /*
        * Replace the payment-only UI row with the real consultation row.
@@ -1110,7 +1119,7 @@ export default function ConsultationsPage() {
                   savedConsultation.booking_time ||
                     manualTime
                 ),
-                status: "Completed",
+                status: savedStatus,
                 completedAt,
                 meetLink: String(
                   savedConsultation.meet_link || ""
@@ -1142,9 +1151,13 @@ export default function ConsultationsPage() {
       setShowManualComplete(false);
 
       alert(
-        result.created
-          ? "Consultation created and marked as completed successfully."
-          : "Consultation updated and marked as completed successfully."
+        markCompleted
+          ? result.created
+            ? "Consultation created and marked as completed successfully."
+            : "Consultation updated and marked as completed successfully."
+          : result.created
+            ? "Consultation slot saved successfully. It is still scheduled."
+            : "Consultation slot updated successfully. It is still scheduled."
       );
     } catch (error) {
       console.error(
@@ -1157,6 +1170,146 @@ export default function ConsultationsPage() {
           error instanceof Error
             ? error.message
             : "Network error. Please try again."
+        }`
+      );
+    } finally {
+      setManualSaving(false);
+    }
+  }
+
+  function openCancelConsultation() {
+    if (!selectedConsultation) return;
+
+    if (!selectedConsultation.id) {
+      alert("This payment does not have a consultation slot to cancel yet.");
+      return;
+    }
+
+    if (selectedConsultation.status === "Completed") {
+      alert("A completed consultation cannot be cancelled. Use the notes if you need to record a post-consultation issue.");
+      return;
+    }
+
+    if (selectedConsultation.status === "Cancelled") {
+      return;
+    }
+
+    setCancellationNote("");
+    setShowCancelConsultation(true);
+  }
+
+  async function cancelConsultation() {
+    if (!selectedConsultation) return;
+
+    const note = cancellationNote.trim();
+
+    if (!note) {
+      alert("Please enter a cancellation note/reason.");
+      return;
+    }
+
+    if (!selectedConsultation.paymentRecordId || !selectedConsultation.paymentId) {
+      alert("This consultation does not have valid payment details.");
+      return;
+    }
+
+    if (!selectedConsultation.id) {
+      alert("This payment does not have a consultation slot to cancel.");
+      return;
+    }
+
+    setManualSaving(true);
+
+    try {
+      const response = await fetch("/api/consultations/manual-complete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          actionType: "cancel",
+          consultationId: selectedConsultation.id,
+          paymentRecordId: selectedConsultation.paymentRecordId,
+          paymentId: selectedConsultation.paymentId,
+          cancellationNote: note,
+        }),
+      });
+
+      const rawResponse = await response.text();
+      let result: any = null;
+
+      try {
+        result = rawResponse ? JSON.parse(rawResponse) : null;
+      } catch {
+        result = null;
+      }
+
+      if (!response.ok) {
+        console.error("Consultation cancellation failed:", {
+          status: response.status,
+          statusText: response.statusText,
+          result,
+          rawResponse,
+        });
+
+        alert(
+          `Could not cancel consultation: ${
+            result?.error ||
+            result?.details ||
+            rawResponse ||
+            `Server returned HTTP ${response.status}.`
+          }`
+        );
+        return;
+      }
+
+      if (!result?.ok || !result?.consultation?.id) {
+        console.error("Cancellation API returned an unexpected response:", {
+          result,
+          rawResponse,
+        });
+
+        alert(result?.error || "The server did not return the cancelled consultation.");
+        return;
+      }
+
+      const cancelledConsultation = result.consultation;
+      const cancelledId = String(cancelledConsultation.id);
+
+      setConsultations((current) =>
+        current.map((consultation) =>
+          consultation.paymentRecordId === selectedConsultation.paymentRecordId
+            ? {
+                ...consultation,
+                id: cancelledId,
+                bookingDate: String(
+                  cancelledConsultation.booking_date || consultation.bookingDate
+                ),
+                bookingTime: String(
+                  cancelledConsultation.booking_time || consultation.bookingTime
+                ),
+                status: "Cancelled",
+                completedAt: null,
+                notes: String(cancelledConsultation.notes || ""),
+                followUpRequired: Boolean(cancelledConsultation.follow_up_required),
+                followUpDate: cancelledConsultation.follow_up_date
+                  ? String(cancelledConsultation.follow_up_date)
+                  : null,
+              }
+            : consultation
+        )
+      );
+
+      setSelectedId(cancelledId);
+      setShowCancelConsultation(false);
+      setCancellationNote("");
+
+      alert("Consultation cancelled successfully.");
+    } catch (error) {
+      console.error("Consultation cancellation request failed:", error);
+      alert(
+        `Could not cancel consultation: ${
+          error instanceof Error ? error.message : "Network error. Please try again."
         }`
       );
     } finally {
@@ -2468,30 +2621,76 @@ export default function ConsultationsPage() {
           cursor: not-allowed;
         }
 
-        .complete-button {
+        .consultation-primary-actions {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          gap: 8px;
+          margin-top: 8px;
+        }
+
+        .complete-button,
+        .cancel-consultation-button {
           width: 100%;
+          min-width: 0;
           height: 40px;
-          border: 1px solid rgba(255, 23, 68, .35);
-          border-radius: 8px;
-          background: #ff1744;
-          color: white;
-          font-size: 12px;
-          font-weight: 700;
+          border-radius: 9px;
+          font-size: 11px;
+          font-weight: 750;
           cursor: pointer;
-          box-shadow: 0 8px 25px rgba(255, 23, 68, .10);
+          transition: all .18s ease;
+        }
+
+        .complete-button {
+          border: 1px solid rgba(255, 23, 68, .42);
+          background: linear-gradient(180deg, #ff2450 0%, #f31240 100%);
+          color: #ffffff;
+          box-shadow: 0 7px 22px rgba(255, 23, 68, .12);
         }
 
         .complete-button:hover:not(:disabled) {
-          background: #ff3158;
-          box-shadow: 0 10px 30px rgba(255, 23, 68, .18);
+          transform: translateY(-1px);
+          background: linear-gradient(180deg, #ff3158 0%, #ff1744 100%);
+          border-color: rgba(255, 23, 68, .62);
+          box-shadow: 0 10px 28px rgba(255, 23, 68, .20);
+        }
+
+        .complete-button:active:not(:disabled),
+        .cancel-consultation-button:active:not(:disabled),
+        .manual-slot-button:active:not(:disabled),
+        .secondary-button:active {
+          transform: translateY(0);
         }
 
         .complete-button:disabled {
-          background: rgba(52, 211, 153, .10);
+          background: rgba(52, 211, 153, .08);
           border-color: rgba(52, 211, 153, .18);
           color: #6ee7b7;
           cursor: default;
           box-shadow: none;
+        }
+
+        .consultation-primary-actions .cancel-consultation-button {
+          margin: 0;
+          padding: 0 10px;
+          border: 1px solid rgba(255, 82, 82, .28);
+          background: rgba(255, 82, 82, .045);
+          color: #ff9a9a;
+          box-shadow: none;
+        }
+
+        .consultation-primary-actions .cancel-consultation-button:hover:not(:disabled) {
+          transform: translateY(-1px);
+          background: rgba(255, 82, 82, .10);
+          border-color: rgba(255, 82, 82, .48);
+          color: #ffb7b7;
+        }
+
+        .consultation-primary-actions .cancel-consultation-button:disabled {
+          opacity: .72;
+          cursor: default;
+          background: rgba(255, 255, 255, .025);
+          border-color: rgba(255, 255, 255, .08);
+          color: #737b86;
         }
 
         .secondary-actions {
@@ -3124,7 +3323,114 @@ export default function ConsultationsPage() {
           color: #fff;
         }
 
+        /* The consultation action-row styles above control the cancel button. */
+
+        .cancel-warning-note {
+          margin-top: 12px;
+          padding: 10px 11px;
+          border-radius: 8px;
+          background: rgba(255, 193, 7, .06);
+          border: 1px solid rgba(255, 193, 7, .16);
+          color: #f3d57a;
+          font-size: 9px;
+          line-height: 1.5;
+        }
+
+        .cancel-note-field {
+          position: relative;
+          margin-top: 14px;
+        }
+
+        .manual-textarea {
+          width: 100%;
+          min-height: 105px;
+          padding: 10px 11px 24px;
+          border: 1px solid rgba(255,255,255,.09);
+          border-radius: 8px;
+          outline: none;
+          resize: vertical;
+          background: #111317;
+          color: #f1f3f6;
+          font-family: inherit;
+          font-size: 11px;
+          line-height: 1.5;
+        }
+
+        .manual-textarea::placeholder {
+          color: #5f6772;
+        }
+
+        .manual-textarea:focus {
+          border-color: rgba(255, 82, 82, .45);
+          box-shadow: 0 0 0 3px rgba(255, 82, 82, .07);
+        }
+
+        .cancel-note-counter {
+          position: absolute;
+          right: 9px;
+          bottom: 7px;
+          color: #626a75;
+          font-size: 9px;
+        }
+
+        .cancel-confirm-button {
+          height: 38px;
+          padding: 0 15px;
+          border: 1px solid rgba(255, 82, 82, .35);
+          border-radius: 8px;
+          background: #d92d3f;
+          color: #fff;
+          font-size: 11px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: .15s ease;
+        }
+
+        .cancel-confirm-button:hover:not(:disabled) {
+          background: #e53b4e;
+        }
+
+        .cancel-confirm-button:disabled {
+          opacity: .5;
+          cursor: not-allowed;
+        }
+
+        .manual-save-only-button {
+          height: 38px;
+          padding: 0 15px;
+          border: 1px solid rgba(255,255,255,.12);
+          border-radius: 8px;
+          background: #17191d;
+          color: #e5e7eb;
+          font-size: 11px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: .15s ease;
+        }
+
+        .manual-save-only-button:hover:not(:disabled) {
+          background: #202329;
+          border-color: rgba(255,255,255,.2);
+        }
+
+        .manual-save-button:hover:not(:disabled) {
+          background: #ff3158;
+        }
+
+        .manual-modal-note.schedule-note {
+          background: rgba(255, 193, 7, .06);
+          border-color: rgba(255, 193, 7, .16);
+          color: #f3d57a;
+        }
+
+        .manual-modal-note.complete-note {
+          background: rgba(52, 211, 153, .06);
+          border-color: rgba(52, 211, 153, .12);
+          color: #8fe8c3;
+        }
+
         .manual-save-button:disabled,
+        .manual-save-only-button:disabled,
         .manual-cancel-button:disabled {
           opacity: .5;
           cursor: not-allowed;
@@ -4358,19 +4664,36 @@ export default function ConsultationsPage() {
                   + Add Manual Slot
                 </button>
 
-                <button
-                  className="complete-button"
-                  disabled={
-                    selectedConsultation.status ===
+                <div className="consultation-primary-actions">
+                  <button
+                    className="complete-button"
+                    disabled={
+                      selectedConsultation.status ===
+                      "Completed"
+                    }
+                    onClick={completeConsultation}
+                  >
+                    {selectedConsultation.status ===
                     "Completed"
-                  }
-                  onClick={completeConsultation}
-                >
-                  {selectedConsultation.status ===
-                  "Completed"
-                    ? "✓ Consultation Completed"
-                    : "Mark Consultation Completed"}
-                </button>
+                      ? "✓ Completed"
+                      : "Mark Completed"}
+                  </button>
+
+                  <button
+                    className="cancel-consultation-button"
+                    disabled={
+                      manualSaving ||
+                      selectedConsultation.status === "Completed" ||
+                      selectedConsultation.status === "Cancelled" ||
+                      !selectedConsultation.id
+                    }
+                    onClick={openCancelConsultation}
+                  >
+                    {selectedConsultation.status === "Cancelled"
+                      ? "✓ Cancelled"
+                      : "Cancel Consultation"}
+                  </button>
+                </div>
 
                 <div className="secondary-actions">
 
@@ -4410,6 +4733,89 @@ export default function ConsultationsPage() {
 
         </div>
 
+        {showCancelConsultation && selectedConsultation && (
+          <div className="manual-modal-backdrop">
+            <div className="manual-modal cancel-modal">
+              <div className="manual-modal-header">
+                <div>
+                  <h2>Cancel Consultation</h2>
+                  <p>
+                    Cancel the scheduled consultation for this client. A cancellation
+                    note is required so you can keep a clear record of why it was cancelled.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  className="manual-modal-close"
+                  disabled={manualSaving}
+                  onClick={() => setShowCancelConsultation(false)}
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="manual-modal-body">
+                <div className="manual-modal-person">
+                  <div className="manual-modal-person-name">
+                    {selectedConsultation.studentName}
+                  </div>
+                  <div className="manual-modal-person-payment">
+                    Payment: {selectedConsultation.paymentId || "—"}
+                  </div>
+                </div>
+
+                <div className="cancel-warning-note">
+                  <strong>Important:</strong> This will change the consultation status to
+                  <strong> Cancelled</strong>. The payment will remain unchanged.
+                </div>
+
+                <div className="cancel-note-field">
+                  <label
+                    className="manual-field-label"
+                    htmlFor="cancellation-note"
+                  >
+                    Cancellation Note / Reason
+                  </label>
+                  <textarea
+                    id="cancellation-note"
+                    className="manual-textarea"
+                    value={cancellationNote}
+                    onChange={(event) => setCancellationNote(event.target.value)}
+                    placeholder="Example: Client requested cancellation due to personal reasons."
+                    rows={5}
+                    maxLength={1000}
+                    disabled={manualSaving}
+                  />
+                  <div className="cancel-note-counter">
+                    {cancellationNote.length}/1000
+                  </div>
+                </div>
+
+                <div className="manual-modal-actions">
+                  <button
+                    type="button"
+                    className="manual-cancel-button"
+                    disabled={manualSaving}
+                    onClick={() => setShowCancelConsultation(false)}
+                  >
+                    Keep Consultation
+                  </button>
+
+                  <button
+                    type="button"
+                    className="cancel-confirm-button"
+                    disabled={manualSaving || !cancellationNote.trim()}
+                    onClick={cancelConsultation}
+                  >
+                    {manualSaving ? "Cancelling..." : "Cancel Consultation"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showManualComplete && selectedConsultation && (
           <div
             className="manual-modal-backdrop"
@@ -4426,7 +4832,7 @@ export default function ConsultationsPage() {
                     Add Manual Consultation Slot
                   </h2>
                   <p className="manual-modal-subtitle">
-                    This payment does not have a consultation booking yet. Add the actual slot and mark this consultation completed.
+                    This payment does not have a consultation booking yet. Add the actual slot, then choose whether the consultation is already completed.
                   </p>
                 </div>
 
@@ -4482,7 +4888,9 @@ export default function ConsultationsPage() {
                 </div>
 
                 <div className="manual-modal-note">
-                  ✓ This will create/update the consultation as <strong>Completed</strong>. A recording is not required for manually completed consultations.
+                  <strong>Save:</strong> creates/updates the slot as <strong>Scheduled</strong>. You can complete it later.
+                  <br />
+                  <strong>Save &amp; Mark Completed:</strong> creates/updates the slot as <strong>Completed</strong>. A recording is not required.
                 </div>
 
                 <div className="manual-modal-actions">
@@ -4497,9 +4905,18 @@ export default function ConsultationsPage() {
 
                   <button
                     type="button"
+                    className="manual-save-only-button"
+                    disabled={manualSaving}
+                    onClick={() => saveManualConsultation(false)}
+                  >
+                    {manualSaving ? "Saving..." : "Save"}
+                  </button>
+
+                  <button
+                    type="button"
                     className="manual-save-button"
                     disabled={manualSaving}
-                    onClick={manuallyCompleteConsultation}
+                    onClick={() => saveManualConsultation(true)}
                   >
                     {manualSaving ? "Saving..." : "Save & Mark Completed"}
                   </button>
